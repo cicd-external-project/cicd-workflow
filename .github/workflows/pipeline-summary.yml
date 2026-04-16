@@ -1,0 +1,138 @@
+name: "Reusable: Pipeline Summary"
+
+on:
+  workflow_call:
+    inputs:
+      pipeline-kind:
+        required: true
+        type: string
+        description: "single or multi"
+      system1-name:
+        required: false
+        type: string
+        default: "Frontend-Root"
+      system1-result:
+        required: false
+        type: string
+        default: ""
+      system2-name:
+        required: false
+        type: string
+        default: ""
+      system2-result:
+        required: false
+        type: string
+        default: ""
+      system3-name:
+        required: false
+        type: string
+        default: ""
+      system3-result:
+        required: false
+        type: string
+        default: ""
+      systems-json:
+        required: false
+        type: string
+        default: ""
+      results-json:
+        required: false
+        type: string
+        default: "{}"
+      overall-result:
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  summary:
+    name: "Pipeline Results"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Print Summary and Evaluate Status
+        env:
+          KIND: ${{ inputs.pipeline-kind }}
+          SYSTEM1_NAME: ${{ inputs.system1-name }}
+          SYSTEM1_RESULT: ${{ inputs.system1-result }}
+          SYSTEM2_NAME: ${{ inputs.system2-name }}
+          SYSTEM2_RESULT: ${{ inputs.system2-result }}
+          SYSTEM3_NAME: ${{ inputs.system3-name }}
+          SYSTEM3_RESULT: ${{ inputs.system3-result }}
+          SYSTEMS_JSON_INPUT: ${{ inputs.systems-json }}
+          RESULTS_JSON_INPUT: ${{ inputs.results-json }}
+          OVERALL_RESULT: ${{ inputs.overall-result }}
+        run: |
+          if [ -n "${SYSTEMS_JSON_INPUT}" ]; then
+            if ! echo "${SYSTEMS_JSON_INPUT}" | jq -e . >/dev/null 2>&1; then
+              echo "❌ Invalid systems-json provided to pipeline-summary."
+              exit 1
+            fi
+
+            if ! echo "${RESULTS_JSON_INPUT}" | jq -e . >/dev/null 2>&1; then
+              RESULTS_JSON_INPUT='{}'
+            fi
+
+            echo "╔══════════════════════════════════════════════════════╗"
+            echo "║          MASTER PIPELINE SUMMARY                     ║"
+            echo "╠══════════════════════════════════════════════════════╣"
+            echo "║ Repository: ${{ github.repository }}"
+            echo "║ Branch:     ${{ github.ref_name }}"
+            echo "║ Commit:     ${{ github.sha }}"
+            echo "║ Actor:      ${{ github.actor }}"
+            echo "║ Timestamp:  $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "╠══════════════════════════════════════════════════════╣"
+
+            echo "${SYSTEMS_JSON_INPUT}" | jq -r --argjson results "${RESULTS_JSON_INPUT}" '.[] | "║ " + .name + ":   " + ($results[.name] // "unknown")'
+            echo "╚══════════════════════════════════════════════════════╝"
+
+            if [ -n "${OVERALL_RESULT}" ] && [ "${OVERALL_RESULT}" != "success" ] && [ "${OVERALL_RESULT}" != "skipped" ]; then
+              echo "❌ Pipeline reported overall result: ${OVERALL_RESULT}"
+              exit 1
+            fi
+
+            FAILED=$(echo "${SYSTEMS_JSON_INPUT}" | jq -r --argjson results "${RESULTS_JSON_INPUT}" '[.[] | ($results[.name] // "unknown") == "failure"] | any')
+            if [ "${FAILED}" = "true" ]; then
+              echo "❌ One or more pipelines failed!"
+              exit 1
+            fi
+
+            echo "✅ All pipelines completed successfully!"
+            exit 0
+          fi
+
+          if [ "${KIND}" = "single" ]; then
+            echo "Repository: ${{ github.repository }}"
+            echo "Branch:     ${{ github.ref_name }}"
+            echo "${SYSTEM1_NAME}:   ${SYSTEM1_RESULT}"
+            exit 0
+          fi
+
+          echo "╔══════════════════════════════════════════════════════╗"
+          echo "║          MASTER PIPELINE SUMMARY                     ║"
+          echo "╠══════════════════════════════════════════════════════╣"
+          echo "║ Repository: ${{ github.repository }}"
+          echo "║ Branch:     ${{ github.ref_name }}"
+          echo "║ Commit:     ${{ github.sha }}"
+          echo "║ Actor:      ${{ github.actor }}"
+          echo "║ Timestamp:  $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "╠══════════════════════════════════════════════════════╣"
+          echo "║ ${SYSTEM1_NAME}:   ${SYSTEM1_RESULT}"
+          [ -n "${SYSTEM2_NAME}" ] && echo "║ ${SYSTEM2_NAME}:   ${SYSTEM2_RESULT}"
+          [ -n "${SYSTEM3_NAME}" ] && echo "║ ${SYSTEM3_NAME}:   ${SYSTEM3_RESULT}"
+          echo "╚══════════════════════════════════════════════════════╝"
+
+          FAILED=false
+          if [[ "${SYSTEM1_RESULT}" == "failure" ]]; then FAILED=true; fi
+          if [ -n "${SYSTEM2_NAME}" ] && [[ "${SYSTEM2_RESULT}" == "failure" ]]; then FAILED=true; fi
+          if [ -n "${SYSTEM3_NAME}" ] && [[ "${SYSTEM3_RESULT}" == "failure" ]]; then FAILED=true; fi
+
+          if [ "$FAILED" = "true" ]; then
+            echo "❌ One or more pipelines failed!"
+            exit 1
+          fi
+
+          echo "✅ All pipelines completed successfully!"

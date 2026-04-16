@@ -1,0 +1,351 @@
+name: "Master Pipeline - Kotlin"
+
+on:
+  workflow_call:
+    inputs:
+      pipeline_mode:
+        required: false
+        type: string
+        default: "auto"
+      working-directory:
+        required: false
+        type: string
+        default: "."
+      system-name:
+        required: false
+        type: string
+        default: "mobile-kotlin"
+      version-stream:
+        required: false
+        type: string
+        default: "mobile-kotlin"
+      java-version:
+        required: false
+        type: string
+        default: "17"
+      governance-task:
+        required: false
+        type: string
+        default: "check"
+      gradle-task:
+        required: false
+        type: string
+        default: "assembleDebug"
+      release-gradle-task:
+        required: false
+        type: string
+        default: "assembleRelease bundleRelease"
+      enable_lint:
+        required: false
+        type: boolean
+        default: true
+      enable_security_scan:
+        required: false
+        type: boolean
+        default: true
+      enable_sonar:
+        required: false
+        type: boolean
+        default: true
+      enable_governance:
+        required: false
+        type: boolean
+        default: true
+      enable_instrumented_tests:
+        required: false
+        type: boolean
+        default: true
+      enable_maestro:
+        required: false
+        type: boolean
+        default: true
+      maestro-test-command:
+        required: false
+        type: string
+        default: "maestro test .maestro"
+      run_deploy:
+        required: false
+        type: boolean
+        default: false
+      run_promotion:
+        required: false
+        type: boolean
+        default: true
+      dry_run:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      SONAR_TOKEN:
+        required: false
+      SONAR_PROJECT_KEY:
+        required: false
+      SONAR_ORGANIZATION:
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: write
+  security-events: write
+
+concurrency:
+  group: master-pipeline-kotlin-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  kotlin-governance:
+    name: "Kotlin Governance"
+    uses: ./.github/workflows/kotlin-governance-check.yml
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      system-name: ${{ inputs.system-name }}
+      java-version: ${{ inputs.java-version }}
+      governance-task: ${{ inputs.governance-task }}
+      run-governance: ${{ inputs.enable_governance }}
+      upload-artifact: true
+
+  kotlin-build:
+    name: "Mobile Kotlin Build"
+    needs: [kotlin-governance]
+    if: ${{ needs.kotlin-governance.result == 'success' || needs.kotlin-governance.result == 'skipped' }}
+    uses: ./.github/workflows/kotlin-gradle.yml
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      system-name: ${{ inputs.system-name }}
+      java-version: ${{ inputs.java-version }}
+      gradle-task: ${{ inputs.gradle-task }}
+      upload-artifact: true
+    secrets: inherit
+
+  kotlin-security-scan:
+    name: "Kotlin Security Scan"
+    needs: [kotlin-build]
+    if: ${{ inputs.enable_security_scan && needs.kotlin-build.result == 'success' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./${{ inputs.working-directory }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: '1'
+
+      - name: Upload Trivy SARIF report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+  resolve-secret-flags:
+    name: "Resolve Optional Secret Flags"
+    needs: [kotlin-build]
+    if: ${{ needs.kotlin-build.result == 'success' }}
+    runs-on: ubuntu-latest
+    outputs:
+      sonar_ready: ${{ steps.flags.outputs.sonar_ready }}
+    steps:
+      - name: Resolve Sonar readiness
+        id: flags
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+        run: |
+          if [ -n "${SONAR_TOKEN}" ] && [ -n "${SONAR_PROJECT_KEY}" ] && [ -n "${SONAR_ORGANIZATION}" ]; then
+            echo "sonar_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sonar_ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  sonarcloud-kotlin:
+    name: "SonarCloud Kotlin"
+    needs: [kotlin-build, kotlin-security-scan, resolve-secret-flags]
+    if: ${{ inputs.enable_sonar && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && needs.kotlin-build.result == 'success' && (needs.kotlin-security-scan.result == 'success' || needs.kotlin-security-scan.result == 'skipped') && needs.resolve-secret-flags.outputs.sonar_ready == 'true' }}
+    uses: ./.github/workflows/sonarcloud-scan.yml
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      system-name: ${{ inputs.system-name }}
+      # Keep main and test sets disjoint to avoid Sonar duplicate indexing errors.
+      sources-path: "app/src/main"
+      tests-path: "app/src/test"
+      sources-exclusions: "**/build/**"
+      coverage-report-path: ""
+      coverage-artifact-name: ""
+      quality-gate-wait: true
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+      SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+
+  kotlin-instrumented-tests:
+    name: "Kotlin Instrumented Tests"
+    needs: [kotlin-build]
+    if: ${{ inputs.enable_instrumented_tests && needs.kotlin-build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: ./${{ inputs.working-directory }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build debug app and test APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+
+      - name: Reset adb before instrumentation run
+        run: |
+          adb kill-server || true
+          adb start-server
+          adb devices || true
+
+      - name: Run connected instrumentation suite (attempt 1)
+        id: instrumented_attempt_1
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          profile: pixel_5
+          force-avd-creation: true
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -wipe-data
+          script: |
+            adb start-server
+            adb wait-for-device
+            ./gradlew :app:connectedDebugAndroidTest :app:jacocoAndroidTestReport --no-daemon --stacktrace
+
+      - name: Capture first-attempt diagnostics
+        if: ${{ steps.instrumented_attempt_1.outcome == 'failure' }}
+        run: |
+          echo "=== adb devices ==="
+          timeout 20s adb devices || true
+          echo "=== sys.boot_completed ==="
+          timeout 20s adb shell getprop sys.boot_completed || true
+          echo "=== logcat tail ==="
+          timeout 30s bash -lc 'adb logcat -d | tail -200' || true
+
+      - name: Run connected instrumentation suite (attempt 2)
+        id: instrumented_attempt_2
+        if: ${{ steps.instrumented_attempt_1.outcome != 'success' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          profile: pixel_5
+          force-avd-creation: true
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -wipe-data
+          script: |
+            adb kill-server || true
+            adb start-server
+            adb wait-for-device
+            ./gradlew :app:connectedDebugAndroidTest :app:jacocoAndroidTestReport --no-daemon --stacktrace
+
+      - name: Fail if instrumentation retries exhausted
+        if: ${{ steps.instrumented_attempt_1.outcome != 'success' && steps.instrumented_attempt_2.outcome != 'success' }}
+        run: |
+          echo "Instrumentation tests failed after two emulator attempts."
+          exit 1
+
+      - name: Upload instrumentation reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.system-name }}-android-instrumented-reports
+          path: |
+            ${{ inputs.working-directory }}/app/build/reports/androidTests/**
+            ${{ inputs.working-directory }}/app/build/reports/jacoco/jacocoAndroidTestReport/**
+            ${{ inputs.working-directory }}/app/build/test-results/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  kotlin-maestro:
+    name: "Kotlin Maestro"
+    needs: [kotlin-build]
+    if: ${{ inputs.enable_maestro && needs.kotlin-build.result == 'success' }}
+    uses: ./.github/workflows/mobile-maestro.yml
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      system-name: ${{ inputs.system-name }}
+      java-version: ${{ inputs.java-version }}
+      project-type: "kotlin"
+      maestro-test-command: ${{ inputs.maestro-test-command }}
+      skip-build: true
+      build-artifact-name: ${{ format('{0}-android-build', inputs.system-name) }}
+
+  version-test:
+    name: "Version Tag - TEST"
+    needs: [kotlin-build, kotlin-security-scan, sonarcloud-kotlin, kotlin-instrumented-tests, kotlin-maestro]
+    if: ${{ github.ref_name == 'test' && inputs.dry_run != true && needs.kotlin-build.result == 'success' && (needs.kotlin-security-scan.result == 'success' || needs.kotlin-security-scan.result == 'skipped') && (needs.sonarcloud-kotlin.result == 'success' || needs.sonarcloud-kotlin.result == 'skipped') && (needs.kotlin-instrumented-tests.result == 'success' || needs.kotlin-instrumented-tests.result == 'skipped') && (needs.kotlin-maestro.result == 'success' || needs.kotlin-maestro.result == 'skipped') }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: test
+      stream: ${{ inputs.version-stream }}
+
+  version-uat:
+    name: "Version Tag - UAT"
+    needs: [kotlin-build, kotlin-security-scan, sonarcloud-kotlin, kotlin-instrumented-tests, kotlin-maestro]
+    if: ${{ github.ref_name == 'uat' && inputs.dry_run != true && needs.kotlin-build.result == 'success' && (needs.kotlin-security-scan.result == 'success' || needs.kotlin-security-scan.result == 'skipped') && (needs.sonarcloud-kotlin.result == 'success' || needs.sonarcloud-kotlin.result == 'skipped') && (needs.kotlin-instrumented-tests.result == 'success' || needs.kotlin-instrumented-tests.result == 'skipped') && (needs.kotlin-maestro.result == 'success' || needs.kotlin-maestro.result == 'skipped') }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: uat
+      stream: ${{ inputs.version-stream }}
+
+  version-main-release:
+    name: "Version Tag - MAIN Release"
+    needs: [kotlin-build, kotlin-security-scan, sonarcloud-kotlin, kotlin-instrumented-tests, kotlin-maestro]
+    if: ${{ github.ref_name == 'main' && inputs.dry_run != true && needs.kotlin-build.result == 'success' && (needs.kotlin-security-scan.result == 'success' || needs.kotlin-security-scan.result == 'skipped') && (needs.sonarcloud-kotlin.result == 'success' || needs.sonarcloud-kotlin.result == 'skipped') && (needs.kotlin-instrumented-tests.result == 'success' || needs.kotlin-instrumented-tests.result == 'skipped') && (needs.kotlin-maestro.result == 'success' || needs.kotlin-maestro.result == 'skipped') }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: release
+      stream: ${{ inputs.version-stream }}
+
+  kotlin-release-build:
+    name: "Kotlin Release Build"
+    needs: [kotlin-build, kotlin-security-scan, sonarcloud-kotlin, kotlin-instrumented-tests, kotlin-maestro]
+    if: ${{ github.ref_name == 'main' && inputs.run_deploy == true && inputs.dry_run != true && needs.kotlin-build.result == 'success' && (needs.kotlin-security-scan.result == 'success' || needs.kotlin-security-scan.result == 'skipped') && (needs.sonarcloud-kotlin.result == 'success' || needs.sonarcloud-kotlin.result == 'skipped') && (needs.kotlin-instrumented-tests.result == 'success' || needs.kotlin-instrumented-tests.result == 'skipped') && (needs.kotlin-maestro.result == 'success' || needs.kotlin-maestro.result == 'skipped') }}
+    uses: ./.github/workflows/kotlin-gradle.yml
+    with:
+      working-directory: ${{ inputs.working-directory }}
+      system-name: ${{ inputs.system-name }}
+      java-version: ${{ inputs.java-version }}
+      gradle-task: ${{ inputs.release-gradle-task }}
+      upload-artifact: true
+    secrets: inherit
+
+  publish-kotlin-release:
+    name: "Publish Kotlin Release"
+    needs: [kotlin-release-build, version-main-release]
+    if: ${{ github.ref_name == 'main' && inputs.run_deploy == true && inputs.dry_run != true && needs.kotlin-release-build.result == 'success' && needs.version-main-release.result == 'success' }}
+    uses: ./.github/workflows/mobile-release-publish.yml
+    with:
+      system-name: ${{ inputs.system-name }}
+      version-stream: ${{ inputs.version-stream }}
+      release-mode: main

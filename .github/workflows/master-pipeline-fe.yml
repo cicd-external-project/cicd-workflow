@@ -1,0 +1,1378 @@
+name: "Master Pipeline Orchestrator"
+
+on:
+  push:
+    branches: [test, uat, main]
+  pull_request:
+    branches: [test, uat, main]
+  workflow_dispatch:
+    inputs:
+      pipeline_mode:
+        description: "Pipeline mode (auto|single|multi)"
+        type: choice
+        options: [auto, single, multi]
+        default: auto
+      enable_playwright:
+        description: "Run Playwright E2E checks"
+        type: boolean
+        default: true
+      playwright_browsers:
+        description: "Playwright browser list (JSON array or CSV)"
+        type: string
+        default: '["chromium"]'
+      e2e_base_url:
+        description: "Optional base URL for Playwright E2E"
+        type: string
+        default: ""
+      playwright_run_only_on_branch:
+        description: "Branch allowed for Playwright execution"
+        type: string
+        default: "test,uat"
+      enable_grafana_k6:
+        description: "Run Grafana k6 cloud checks"
+        type: boolean
+        default: true
+      k6_script_path:
+        description: "Path to k6 script or performance tests directory"
+        type: string
+        default: "tests/performance"
+      k6_base_url:
+        description: "Optional base URL for k6"
+        type: string
+        default: ""
+      k6_target_system_name:
+        description: "Optional system name for k6 target URL selection"
+        type: string
+        default: ""
+      k6_run_only_on_branch:
+        description: "Branch allowed for k6 execution"
+        type: string
+        default: "test,uat"
+      enforce_e2e_k6:
+        description: "Enforce Playwright + k6 checks before promotion"
+        type: boolean
+        default: true
+      enforce_e2e_k6_on_branches:
+        description: "Branches where Playwright + k6 are mandatory"
+        type: string
+        default: "test,uat"
+      run_deploy:
+        description: "Run deploy jobs"
+        type: boolean
+        default: true
+      run_promotion:
+        description: "Run PR promotion jobs"
+        type: boolean
+        default: true
+      dry_run:
+        description: "Preview-only mode (skip deploy/tag push, print PR body)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      pipeline_mode:
+        description: "Pipeline mode (auto|single|multi)"
+        type: string
+        default: auto
+      enable_playwright:
+        description: "Run Playwright E2E checks"
+        type: boolean
+        default: true
+      playwright_browsers:
+        description: "Playwright browser list (JSON array or CSV)"
+        type: string
+        default: '["chromium"]'
+      e2e_base_url:
+        description: "Optional base URL for Playwright E2E"
+        type: string
+        default: ""
+      playwright_run_only_on_branch:
+        description: "Branch allowed for Playwright execution"
+        type: string
+        default: "test,uat"
+      enable_grafana_k6:
+        description: "Run Grafana k6 cloud checks"
+        type: boolean
+        default: true
+      k6_script_path:
+        description: "Path to k6 script or performance tests directory"
+        type: string
+        default: "tests/performance"
+      k6_base_url:
+        description: "Optional base URL for k6"
+        type: string
+        default: ""
+      k6_target_system_name:
+        description: "Optional system name for k6 target URL selection"
+        type: string
+        default: ""
+      k6_run_only_on_branch:
+        description: "Branch allowed for k6 execution"
+        type: string
+        default: "test,uat"
+      enforce_e2e_k6:
+        description: "Enforce Playwright + k6 checks before promotion"
+        type: boolean
+        default: true
+      enforce_e2e_k6_on_branches:
+        description: "Branches where Playwright + k6 are mandatory"
+        type: string
+        default: "test,uat"
+      run_deploy:
+        description: "Run deploy jobs"
+        type: boolean
+        default: true
+      run_promotion:
+        description: "Run PR promotion jobs"
+        type: boolean
+        default: true
+      dry_run:
+        description: "Preview-only mode (skip deploy/tag push, print PR body)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+  security-events: write
+
+concurrency:
+  group: master-pipeline-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  systems-config:
+    name: "Resolve Systems Configuration"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      systems_json: ${{ steps.resolve.outputs.systems_json }}
+      systems_label: ${{ steps.resolve.outputs.systems_label }}
+      pipeline_mode: ${{ steps.resolve.outputs.pipeline_mode }}
+    steps:
+      - name: Resolve systems JSON
+        id: resolve
+        env:
+          FE_SINGLE_SYSTEMS_JSON_VAR: ${{ vars.FE_SINGLE_SYSTEMS_JSON }}
+          FE_MULTI_SYSTEMS_JSON_VAR: ${{ vars.FE_MULTI_SYSTEMS_JSON }}
+          REQUESTED_PIPELINE_MODE: ${{ inputs.pipeline_mode }}
+        run: |
+          MODE_INPUT="${REQUESTED_PIPELINE_MODE}"
+          if [ -z "${MODE_INPUT}" ]; then
+            MODE_INPUT="auto"
+          fi
+
+          SYSTEMS_JSON_VAR=""
+          PIPELINE_MODE=""
+
+          if [ "${MODE_INPUT}" = "single" ]; then
+            if [ -n "${FE_SINGLE_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${FE_SINGLE_SYSTEMS_JSON_VAR}"
+            elif [ -n "${FE_MULTI_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${FE_MULTI_SYSTEMS_JSON_VAR}"
+            fi
+            PIPELINE_MODE="single"
+          elif [ "${MODE_INPUT}" = "multi" ]; then
+            if [ -n "${FE_MULTI_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${FE_MULTI_SYSTEMS_JSON_VAR}"
+            elif [ -n "${FE_SINGLE_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${FE_SINGLE_SYSTEMS_JSON_VAR}"
+            fi
+            PIPELINE_MODE="multi"
+          else
+            if [ -n "${FE_MULTI_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${FE_MULTI_SYSTEMS_JSON_VAR}"
+            elif [ -n "${FE_SINGLE_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${FE_SINGLE_SYSTEMS_JSON_VAR}"
+            fi
+          fi
+
+          if [ -z "${SYSTEMS_JSON_VAR}" ]; then
+            echo "❌ Missing required repository variable FE_MULTI_SYSTEMS_JSON or FE_SINGLE_SYSTEMS_JSON."
+            exit 1
+          fi
+
+          SYSTEMS_JSON="${SYSTEMS_JSON_VAR}"
+
+          echo "${SYSTEMS_JSON}" | jq -e . >/dev/null
+
+          SYSTEMS_JSON_TYPE=$(echo "${SYSTEMS_JSON}" | jq -r 'type')
+          if [ "${SYSTEMS_JSON_TYPE}" = "object" ]; then
+            SYSTEMS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c '[.]')
+          elif [ "${SYSTEMS_JSON_TYPE}" = "array" ]; then
+            SYSTEMS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c .)
+          else
+            echo "❌ Systems JSON must be an object (single) or array (single/multi)."
+            exit 1
+          fi
+
+          echo "${SYSTEMS_JSON}" | jq -e 'length > 0' >/dev/null
+          echo "${SYSTEMS_JSON}" | jq -e 'all(.[]; (.name|type=="string" and length>0) and (.dir|type=="string" and length>0) and (.image|type=="string" and length>0) and (.vercel_project_secret|type=="string" and length>0))' >/dev/null
+
+          if [ -z "${PIPELINE_MODE}" ]; then
+            SYSTEMS_COUNT=$(echo "${SYSTEMS_JSON}" | jq 'length')
+            if [ "${SYSTEMS_COUNT}" -gt 1 ]; then
+              PIPELINE_MODE="multi"
+            else
+              PIPELINE_MODE="single"
+            fi
+          fi
+
+          SYSTEMS_LABEL=$(echo "${SYSTEMS_JSON}" | jq -r 'map(.name) | join(", ")')
+
+          echo "systems_json=${SYSTEMS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "systems_label=${SYSTEMS_LABEL}" >> "$GITHUB_OUTPUT"
+          echo "pipeline_mode=${PIPELINE_MODE}" >> "$GITHUB_OUTPUT"
+
+  qa-controls:
+    name: "Resolve QA Controls"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      enable_playwright: ${{ steps.resolve.outputs.enable_playwright }}
+      playwright_browsers: ${{ steps.resolve.outputs.playwright_browsers }}
+      e2e_base_url: ${{ steps.resolve.outputs.e2e_base_url }}
+      playwright_run_only_on_branch: ${{ steps.resolve.outputs.playwright_run_only_on_branch }}
+      enable_grafana_k6: ${{ steps.resolve.outputs.enable_grafana_k6 }}
+      k6_script_path: ${{ steps.resolve.outputs.k6_script_path }}
+      k6_base_url: ${{ steps.resolve.outputs.k6_base_url }}
+      k6_target_system_name: ${{ steps.resolve.outputs.k6_target_system_name }}
+      k6_run_only_on_branch: ${{ steps.resolve.outputs.k6_run_only_on_branch }}
+      enforce_e2e_k6: ${{ steps.resolve.outputs.enforce_e2e_k6 }}
+      enforce_e2e_k6_on_branches: ${{ steps.resolve.outputs.enforce_e2e_k6_on_branches }}
+      require_e2e_k6: ${{ steps.resolve.outputs.require_e2e_k6 }}
+    steps:
+      - name: Resolve QA inputs
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IN_REF_NAME: ${{ github.ref_name }}
+          IN_BASE_REF: ${{ github.base_ref }}
+          IN_ENABLE_PLAYWRIGHT: ${{ inputs.enable_playwright }}
+          IN_PLAYWRIGHT_BROWSERS: ${{ inputs.playwright_browsers }}
+          IN_E2E_BASE_URL: ${{ inputs.e2e_base_url }}
+          IN_PLAYWRIGHT_RUN_ONLY_ON_BRANCH: ${{ inputs.playwright_run_only_on_branch }}
+          IN_ENABLE_GRAFANA_K6: ${{ inputs.enable_grafana_k6 }}
+          IN_K6_SCRIPT_PATH: ${{ inputs.k6_script_path }}
+          IN_K6_BASE_URL: ${{ inputs.k6_base_url }}
+          IN_K6_TARGET_SYSTEM_NAME: ${{ inputs.k6_target_system_name }}
+          IN_K6_RUN_ONLY_ON_BRANCH: ${{ inputs.k6_run_only_on_branch }}
+          IN_ENFORCE_E2E_K6: ${{ inputs.enforce_e2e_k6 }}
+          IN_ENFORCE_E2E_K6_ON_BRANCHES: ${{ inputs.enforce_e2e_k6_on_branches }}
+        run: |
+          ENABLE_PLAYWRIGHT="${IN_ENABLE_PLAYWRIGHT}"
+          ENABLE_GRAFANA_K6="${IN_ENABLE_GRAFANA_K6}"
+          ENFORCE_E2E_K6="${IN_ENFORCE_E2E_K6}"
+
+          if [ -z "${ENABLE_PLAYWRIGHT}" ]; then
+            ENABLE_PLAYWRIGHT="true"
+          fi
+
+          if [ -z "${ENABLE_GRAFANA_K6}" ]; then
+            ENABLE_GRAFANA_K6="true"
+          fi
+
+          if [ "${ENABLE_PLAYWRIGHT}" != "true" ] && [ "${ENABLE_PLAYWRIGHT}" != "false" ]; then
+            ENABLE_PLAYWRIGHT="true"
+          fi
+
+          if [ "${ENABLE_GRAFANA_K6}" != "true" ] && [ "${ENABLE_GRAFANA_K6}" != "false" ]; then
+            ENABLE_GRAFANA_K6="true"
+          fi
+
+          if [ -z "${ENFORCE_E2E_K6}" ]; then
+            ENFORCE_E2E_K6="true"
+          fi
+
+          if [ "${ENFORCE_E2E_K6}" != "true" ] && [ "${ENFORCE_E2E_K6}" != "false" ]; then
+            ENFORCE_E2E_K6="true"
+          fi
+
+          PLAYWRIGHT_BROWSERS='["chromium"]'
+          if [ -n "${IN_PLAYWRIGHT_BROWSERS}" ]; then
+            PLAYWRIGHT_BROWSERS="${IN_PLAYWRIGHT_BROWSERS}"
+          fi
+
+          PLAYWRIGHT_RUN_ONLY_ON_BRANCH="test,uat"
+          if [ -n "${IN_PLAYWRIGHT_RUN_ONLY_ON_BRANCH}" ]; then
+            PLAYWRIGHT_RUN_ONLY_ON_BRANCH="${IN_PLAYWRIGHT_RUN_ONLY_ON_BRANCH}"
+          fi
+
+          K6_SCRIPT_PATH="tests/performance"
+          if [ -n "${IN_K6_SCRIPT_PATH}" ]; then
+            K6_SCRIPT_PATH="${IN_K6_SCRIPT_PATH}"
+          fi
+
+          K6_RUN_ONLY_ON_BRANCH="test,uat"
+          if [ -n "${IN_K6_RUN_ONLY_ON_BRANCH}" ]; then
+            K6_RUN_ONLY_ON_BRANCH="${IN_K6_RUN_ONLY_ON_BRANCH}"
+          fi
+
+          K6_TARGET_SYSTEM_NAME="$(echo "${IN_K6_TARGET_SYSTEM_NAME}" | xargs)"
+
+          ENFORCE_E2E_K6_ON_BRANCHES="test,uat"
+          if [ -n "${IN_ENFORCE_E2E_K6_ON_BRANCHES}" ]; then
+            ENFORCE_E2E_K6_ON_BRANCHES="${IN_ENFORCE_E2E_K6_ON_BRANCHES}"
+          fi
+
+          TARGET_BRANCH="${IN_REF_NAME}"
+          if [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${IN_BASE_REF}" ]; then
+            TARGET_BRANCH="${IN_BASE_REF}"
+          fi
+
+          IS_ENFORCED_BRANCH="false"
+          IFS=',' read -ra ENFORCE_BRANCHES <<< "${ENFORCE_E2E_K6_ON_BRANCHES}"
+          for raw_branch in "${ENFORCE_BRANCHES[@]}"; do
+            branch=$(echo "${raw_branch}" | xargs)
+            if [ -n "${branch}" ] && [ "${branch}" = "${TARGET_BRANCH}" ]; then
+              IS_ENFORCED_BRANCH="true"
+              break
+            fi
+          done
+
+          REQUIRE_E2E_K6="false"
+          if [ "${ENFORCE_E2E_K6}" = "true" ] && [ "${IS_ENFORCED_BRANCH}" = "true" ]; then
+            REQUIRE_E2E_K6="true"
+          fi
+
+          echo "enable_playwright=${ENABLE_PLAYWRIGHT}" >> "$GITHUB_OUTPUT"
+          echo "playwright_browsers=${PLAYWRIGHT_BROWSERS}" >> "$GITHUB_OUTPUT"
+          echo "e2e_base_url=${IN_E2E_BASE_URL}" >> "$GITHUB_OUTPUT"
+          echo "playwright_run_only_on_branch=${PLAYWRIGHT_RUN_ONLY_ON_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "enable_grafana_k6=${ENABLE_GRAFANA_K6}" >> "$GITHUB_OUTPUT"
+          echo "k6_script_path=${K6_SCRIPT_PATH}" >> "$GITHUB_OUTPUT"
+          echo "k6_base_url=${IN_K6_BASE_URL}" >> "$GITHUB_OUTPUT"
+          echo "k6_target_system_name=${K6_TARGET_SYSTEM_NAME}" >> "$GITHUB_OUTPUT"
+          echo "k6_run_only_on_branch=${K6_RUN_ONLY_ON_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "enforce_e2e_k6=${ENFORCE_E2E_K6}" >> "$GITHUB_OUTPUT"
+          echo "enforce_e2e_k6_on_branches=${ENFORCE_E2E_K6_ON_BRANCHES}" >> "$GITHUB_OUTPUT"
+          echo "require_e2e_k6=${REQUIRE_E2E_K6}" >> "$GITHUB_OUTPUT"
+
+  active-systems:
+    name: "Detect Active Systems"
+    needs: [systems-config]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      active_systems_json: ${{ steps.select.outputs.active_systems_json }}
+      active_count: ${{ steps.select.outputs.active_count }}
+      active_label: ${{ steps.select.outputs.active_label }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Select active systems
+        id: select
+        env:
+          SYSTEMS_JSON: ${{ needs.systems-config.outputs.systems_json }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "workflow_call" ]; then
+            ACTIVE="${SYSTEMS_JSON}"
+          else
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            else
+              BASE_SHA="${{ github.event.before }}"
+            fi
+
+            if [ -z "${BASE_SHA}" ] || [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
+              BASE_SHA=$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)
+            fi
+
+            CHANGED_FILES=$(git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" || true)
+            CHANGED_JSON=$(printf "%s\n" "${CHANGED_FILES}" | sed '/^$/d' | jq -R . | jq -s .)
+            SYSTEM_DIRS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c '[.[] | (.dir // "" | gsub("^\\./"; "")) | select(. != "" and . != ".")]')
+
+            SHARED_CHANGED=false
+            if printf "%s\n" "${CHANGED_FILES}" | grep -Eq '^(\.github/|package\.json$|sonar-project\.properties$)'; then
+              SHARED_CHANGED=true
+            elif echo "${CHANGED_JSON}" | jq -e --argjson dirs "${SYSTEM_DIRS_JSON}" '
+              any(.[]; . as $file | ([$dirs[]? | select($file | startswith(. + "/"))] | length) == 0)
+            ' >/dev/null; then
+              SHARED_CHANGED=true
+            fi
+
+            if [ "${SHARED_CHANGED}" = "true" ]; then
+              ACTIVE="${SYSTEMS_JSON}"
+            else
+              ACTIVE=$(echo "${SYSTEMS_JSON}" | jq -c --argjson changed "${CHANGED_JSON}" '
+                map(select(
+                  . as $system
+                  | (($system.dir | gsub("^\\./"; "")) as $dir
+                    | if ($dir == "" or $dir == ".")
+                      then ($changed | length) > 0
+                      else any($changed[]; startswith($dir + "/"))
+                      end)
+                ))
+              ')
+            fi
+          fi
+
+          ACTIVE=$(echo "${ACTIVE}" | jq -c '
+            map(
+              . + {
+                version_stream: (
+                  ((.version_stream // .name // .dir // "system") | ascii_downcase | gsub("[^a-z0-9]+"; "-") | gsub("(^-+|-+$)"; ""))
+                  | if length > 0 then . else "system" end
+                )
+              }
+            )
+          ')
+
+          ACTIVE_COUNT=$(echo "${ACTIVE}" | jq 'length')
+          if [ "${ACTIVE_COUNT}" -gt 0 ]; then
+            ACTIVE_LABEL=$(echo "${ACTIVE}" | jq -r 'map(.name) | join(", ")')
+          else
+            ACTIVE_LABEL="None"
+          fi
+
+          echo "active_systems_json=${ACTIVE}" >> "$GITHUB_OUTPUT"
+          echo "active_count=${ACTIVE_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "active_label=${ACTIVE_LABEL}" >> "$GITHUB_OUTPUT"
+
+  validate-system-directories:
+    name: "Validate System Directories"
+    needs: [active-systems]
+    if: fromJson(needs.active-systems.outputs.active_count) > 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Validate configured system directories exist
+        env:
+          ACTIVE_SYSTEMS_JSON: ${{ needs.active-systems.outputs.active_systems_json }}
+        run: |
+          MISSING_LIST=""
+          while IFS=$'\t' read -r SYSTEM_NAME SYSTEM_DIR; do
+            [ -z "${SYSTEM_NAME}" ] && continue
+            CLEAN_DIR="${SYSTEM_DIR#./}"
+            CLEAN_DIR="${CLEAN_DIR%/}"
+            if [ -n "${CLEAN_DIR}" ] && [ "${CLEAN_DIR}" != "." ] && [ ! -d "${CLEAN_DIR}" ]; then
+              MISSING_LIST="${MISSING_LIST}\n- ${SYSTEM_NAME}: ${SYSTEM_DIR}"
+            fi
+          done < <(echo "${ACTIVE_SYSTEMS_JSON}" | jq -r '.[] | [(.name // "<unnamed>"), (.dir // ".")] | @tsv')
+
+          if [ -n "${MISSING_LIST}" ]; then
+            echo "❌ Invalid FE systems configuration: one or more configured directories do not exist in this repository."
+            printf "%b\n" "${MISSING_LIST}"
+            echo ""
+            echo "Update repository variable FE_MULTI_SYSTEMS_JSON / FE_SINGLE_SYSTEMS_JSON with valid 'dir' values (use '.' for repo root)."
+            echo "Directory names are case-sensitive on Linux runners."
+            exit 1
+          fi
+
+          echo "✅ All configured FE system directories exist."
+
+  frontend:
+    name: "Frontend — ${{ matrix.system.name }}"
+    needs: [active-systems, validate-system-directories]
+    if: fromJson(needs.active-systems.outputs.active_count) > 0
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/front-end-workflow.yml
+    with:
+      system-dir: ${{ matrix.system.dir }}
+      system-name: ${{ matrix.system.name }}
+      enable-security-scan: true
+    secrets: inherit
+
+  playwright-e2e:
+    name: "Playwright E2E — ${{ matrix.system.name }}"
+    needs: [active-systems, frontend, qa-controls]
+    if: >-
+      always() &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') &&
+      needs.qa-controls.outputs.enable_playwright == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/playwright-e2e.yml
+    with:
+      working-directory: ${{ matrix.system.dir }}
+      system-name: ${{ matrix.system.name }}
+      browser-list: ${{ needs.qa-controls.outputs.playwright_browsers }}
+      e2e-base-url: ${{ needs.qa-controls.outputs.e2e_base_url }}
+      run-only-on-branch: ${{ needs.qa-controls.outputs.playwright_run_only_on_branch }}
+      parallel-mode: matrix
+      max-parallel: 3
+      fail-fast: false
+      upload-artifacts: false
+    secrets: inherit
+
+  sonarcloud:
+    name: "SonarCloud — Monorepo Analysis"
+    needs: [frontend, active-systems]
+    if: always() && needs.frontend.result != 'cancelled' && fromJson(needs.active-systems.outputs.active_count) > 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate SonarCloud project access
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+        run: |
+          if [ -z "${SONAR_TOKEN}" ] || [ -z "${SONAR_ORGANIZATION}" ] || [ -z "${SONAR_PROJECT_KEY}" ]; then
+            echo "❌ SonarCloud preflight failed: one or more required secrets are empty."
+            exit 1
+          fi
+
+          RESPONSE=$(curl -sS -w "\n%{http_code}" -u "${SONAR_TOKEN}:" "https://sonarcloud.io/api/projects/search?organization=${SONAR_ORGANIZATION}&projects=${SONAR_PROJECT_KEY}")
+          HTTP_CODE=$(echo "${RESPONSE}" | tail -n 1)
+          BODY=$(echo "${RESPONSE}" | sed '$d')
+          TOTAL=$(echo "${BODY}" | jq -r '.paging.total // 0')
+
+          echo "🔎 Sonar preflight: org='${SONAR_ORGANIZATION}', project='${SONAR_PROJECT_KEY}', http=${HTTP_CODE}, total=${TOTAL}"
+
+          if [ "${HTTP_CODE}" -ne 200 ] || [ "${TOTAL}" -lt 1 ]; then
+            echo "❌ SonarCloud preflight failed: project not found or token has no access."
+            echo "Check SONAR_ORGANIZATION, SONAR_PROJECT_KEY, and SONAR_TOKEN permissions for this repository."
+            exit 1
+          fi
+
+          echo "✅ SonarCloud preflight passed."
+
+      - name: Run SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          args: >
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            -Dsonar.exclusions=**/tests/performance/**
+
+  version-test:
+    name: "Version Tag — TEST (${{ matrix.system.name }})"
+    needs: [frontend, active-systems, sonarcloud]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/test' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.dry_run != true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: test
+      stream: ${{ matrix.system.version_stream }}
+
+  version-uat:
+    name: "Version Tag — UAT (${{ matrix.system.name }})"
+    needs: [frontend, active-systems, sonarcloud]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/uat' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.dry_run != true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: uat
+      stream: ${{ matrix.system.version_stream }}
+
+  deploy-preview:
+    name: "${{ (github.ref_name == 'test' || github.base_ref == 'test') && 'TEST' || 'UAT' }} — ${{ matrix.system.name }}"
+    needs: [frontend, active-systems, sonarcloud]
+    if: >-
+      always() &&
+      (((github.event_name == 'pull_request' && github.base_ref == 'test') || github.ref == 'refs/heads/test') || ((github.event_name == 'pull_request' && github.base_ref == 'uat') || github.ref == 'refs/heads/uat')) &&
+      (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || (inputs.run_deploy == true && inputs.dry_run != true)) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/vercel-deploy.yml
+    with:
+      system-name: ${{ matrix.system.name }}
+      working-directory: ${{ matrix.system.dir }}
+      environment: preview
+    secrets:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets[matrix.system.vercel_project_secret] }}
+      GH_PR_TOKEN: ${{ secrets.GH_PR_TOKEN }}
+
+  production-gate:
+    name: "Production Readiness Gate"
+    needs: [frontend, active-systems, sonarcloud]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || (inputs.run_deploy == true && inputs.dry_run != true)) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
+    uses: ./.github/workflows/production-gate.yml
+    with:
+      system-dir: ${{ needs.active-systems.outputs.active_label }}
+      app-type: web
+    secrets: inherit
+
+  deploy-prod:
+    name: "Prod — ${{ matrix.system.name }}"
+    needs: [production-gate, active-systems]
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.run_deploy == true && inputs.dry_run != true)) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/vercel-deploy.yml
+    with:
+      system-name: ${{ matrix.system.name }}
+      working-directory: ${{ matrix.system.dir }}
+      environment: production
+    secrets:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets[matrix.system.vercel_project_secret] }}
+      GH_PR_TOKEN: ${{ secrets.GH_PR_TOKEN }}
+
+  update-about-link:
+    name: "Update Repository About Link"
+    needs: [deploy-prod]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      needs.deploy-prod.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Resolve latest production deployment URL
+        id: resolve-url
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          RESPONSE=$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" "https://api.vercel.com/v6/deployments?target=production&meta-githubCommitSha=${COMMIT_SHA}&limit=50")
+
+          if ! echo "${RESPONSE}" | jq -e . >/dev/null 2>&1; then
+            echo "⚠️ Invalid Vercel API response; skipping About homepage update."
+            exit 0
+          fi
+
+          URL=$(echo "${RESPONSE}" | jq -r '[.deployments[]? | select((.state // "") == "READY") | ("https://" + .url)] | first // ""')
+
+          if [ -z "${URL}" ]; then
+            echo "⚠️ No production deployment URL found for this commit; skipping About homepage update."
+            exit 0
+          fi
+
+          echo "deployment_url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "✅ Resolved production deployment URL: ${URL}"
+
+      - name: Update repository homepage URL
+        if: ${{ steps.resolve-url.outputs.deployment_url != '' }}
+        env:
+          GH_PR_TOKEN_PRIMARY: ${{ secrets.GH_PR_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.resolve-url.outputs.deployment_url }}
+        run: |
+          GH_TOKEN="${GH_PR_TOKEN_PRIMARY}"
+
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "⚠️ GH_PR_TOKEN is not set; skipping About homepage update."
+            exit 0
+          fi
+
+          if gh api --method PATCH "repos/${{ github.repository }}" -f homepage="${DEPLOYMENT_URL}" >/dev/null 2>&1; then
+            echo "✅ Updated repository About homepage to ${DEPLOYMENT_URL}"
+          else
+            echo "⚠️ Failed to update repository About homepage (token may lack admin rights)."
+          fi
+
+  version-main-release:
+    name: "Version Tag — MAIN Release (${{ matrix.system.name }})"
+    needs: [deploy-prod, active-systems]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.dry_run != true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.deploy-prod.result == 'success' || needs.deploy-prod.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: release
+      stream: ${{ matrix.system.version_stream }}
+
+  resolve-main-tags:
+    name: "Resolve MAIN Tags"
+    needs: [version-main-release, active-systems]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.version-main-release.result == 'success' || needs.version-main-release.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      tags_json: ${{ steps.resolve.outputs.tags_json }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build per-system MAIN tags JSON
+        id: resolve
+        env:
+          SYSTEMS_JSON: ${{ needs.active-systems.outputs.active_systems_json }}
+        run: |
+          TAGS_JSON='{}'
+
+          while IFS=$'\t' read -r NAME STREAM; do
+            if [ -z "${NAME}" ]; then
+              continue
+            fi
+
+            if [ -z "${STREAM}" ] || [ "${STREAM}" = "global" ]; then
+              PREFIX="main-v"
+            else
+              PREFIX="main-${STREAM}-v"
+            fi
+
+            TAG=$(git tag -l "${PREFIX}*" | grep -E "^${PREFIX}[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
+            TAGS_JSON=$(echo "${TAGS_JSON}" | jq -c --arg name "${NAME}" --arg tag "${TAG}" '. + {($name):$tag}')
+          done < <(echo "${SYSTEMS_JSON}" | jq -r '.[] | "\(.name)\t\(.version_stream // "global")"')
+
+          echo "tags_json=${TAGS_JSON}" >> "$GITHUB_OUTPUT"
+
+  docker-main:
+    name: "GHCR — ${{ matrix.system.name }}"
+    needs: [version-main-release, resolve-main-tags, active-systems]
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.run_deploy == true && inputs.dry_run != true)) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      working-directory: ${{ matrix.system.dir }}
+      image-name: ${{ matrix.system.image }}
+      release-tag: ${{ fromJson(needs.resolve-main-tags.outputs.tags_json)[matrix.system.name] }}
+      push-image: true
+      scan-vulnerabilities: true
+    secrets: inherit
+
+  docker-security-gate:
+    name: "Container Security Gate — ${{ matrix.system.name }}"
+    needs: [active-systems, playwright-e2e-postdeploy, grafana-k6-postdeploy, enforce-e2e-k6]
+    if: >-
+      always() &&
+      (((github.event_name == 'pull_request' && (github.base_ref == 'test' || github.base_ref == 'uat')) || github.ref_name == 'test' || github.ref_name == 'uat')) &&
+      (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.playwright-e2e-postdeploy.result == 'success' || needs.playwright-e2e-postdeploy.result == 'skipped') &&
+      (needs.grafana-k6-postdeploy.result == 'success' || needs.grafana-k6-postdeploy.result == 'skipped') &&
+      needs.enforce-e2e-k6.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      working-directory: ${{ matrix.system.dir }}
+      image-name: ${{ matrix.system.image }}
+      push-image: false
+      scan-vulnerabilities: true
+      fail-on-vulnerabilities: true
+      generate-sbom: false
+      generate-provenance: false
+    secrets: inherit
+
+  prepare-promotion-payload:
+    name: "Prepare Promotion Payload"
+    needs: [active-systems, frontend, deploy-preview, version-test]
+    if: >-
+      always() &&
+      (((github.event_name == 'pull_request' && github.base_ref == 'test') || github.ref == 'refs/heads/test') || ((github.event_name == 'pull_request' && github.base_ref == 'uat') || github.ref == 'refs/heads/uat')) &&
+      (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') &&
+      (needs.deploy-preview.result == 'success' || needs.deploy-preview.result == 'skipped') &&
+      (needs.version-test.result == 'success' || needs.version-test.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      deployment_urls_json: ${{ steps.build.outputs.deployment_urls_json }}
+      results_json: ${{ steps.build.outputs.results_json }}
+      versions_json: ${{ steps.build.outputs.versions_json }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build payload JSON
+        id: build
+        env:
+          SYSTEMS_JSON: ${{ needs.active-systems.outputs.active_systems_json }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          DEPLOY_RESULT: ${{ needs.deploy-preview.result }}
+          TARGET_BRANCH: ${{ github.base_ref != '' && github.base_ref || github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          REQUIRE_TEST_TAGS="false"
+          if [ "${TARGET_BRANCH}" = "uat" ]; then
+            REQUIRE_TEST_TAGS="true"
+          elif [ "${EVENT_NAME}" != "pull_request" ]; then
+            REQUIRE_TEST_TAGS="true"
+          fi
+
+          VERSIONS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c 'reduce .[] as $s ({}; .[$s.name] = "N/A")')
+          MISSING_TEST_TAG=false
+          while IFS=$'\t' read -r NAME STREAM; do
+            if [ -z "${NAME}" ]; then
+              continue
+            fi
+
+            FALLBACK_PREFIX=""
+            if [ -z "${STREAM}" ] || [ "${STREAM}" = "global" ]; then
+              PREFIX="test-v"
+            else
+              PREFIX="test-${STREAM}-v"
+              FALLBACK_PREFIX="test-v"
+            fi
+
+            TAG=$(git tag -l "${PREFIX}*" | grep -E "^${PREFIX}[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
+
+            if [ -z "${TAG}" ] && [ -n "${FALLBACK_PREFIX}" ]; then
+              LEGACY_TAG=$(git tag -l "${FALLBACK_PREFIX}*" | grep -E "^${FALLBACK_PREFIX}[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
+              if [ -n "${LEGACY_TAG}" ]; then
+                echo "ℹ️ No stream-specific test tag found for '${STREAM}'. Falling back to legacy '${FALLBACK_PREFIX}*' for system '${NAME}'."
+                TAG="${LEGACY_TAG}"
+              fi
+            fi
+
+            if [ -z "${TAG}" ]; then
+              echo "❌ Missing required ${PREFIX}<version> tag for system '${NAME}'."
+              MISSING_TEST_TAG=true
+              TAG="N/A"
+            fi
+
+            VERSIONS_JSON=$(echo "${VERSIONS_JSON}" | jq -c --arg name "${NAME}" --arg tag "${TAG}" '. + {($name):$tag}')
+          done < <(echo "${SYSTEMS_JSON}" | jq -r '.[] | "\(.name)\t\(.version_stream // "global")"')
+
+          if [ "${MISSING_TEST_TAG}" = "true" ]; then
+            if [ "${REQUIRE_TEST_TAGS}" = "true" ]; then
+              if [ "${TARGET_BRANCH}" = "test" ]; then
+                echo "❌ TEST→UAT promotion blocked: run TEST tagging first for all active systems/streams."
+              else
+                echo "❌ UAT→Main promotion blocked: run TEST tagging first for all active systems/streams."
+              fi
+              exit 1
+            fi
+
+            echo "⚠️ Missing TEST tags detected, but tag enforcement is skipped for this run."
+          fi
+
+          RESPONSE=$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" "https://api.vercel.com/v6/deployments?target=preview&meta-githubCommitSha=${COMMIT_SHA}&limit=100")
+          if ! echo "${RESPONSE}" | jq -e . >/dev/null 2>&1; then
+            RESPONSE='{"deployments":[]}'
+          fi
+
+          DEPLOYMENT_URLS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c --argjson data "${RESPONSE}" --arg runUrl "${RUN_URL}" '
+            reduce .[] as $s ({};
+              ($s.name // "") as $name |
+              ($s.dir // "" | gsub("^\\./"; "") | split("/")[0]) as $dirKey |
+              ($name | ascii_downcase) as $nameLower |
+              ($dirKey | ascii_downcase) as $dirLower |
+              .[$name] = (
+                [ $data.deployments[]?
+                  | select((.state // "") == "READY")
+                  | {
+                      n: ((.name // "") | ascii_downcase),
+                      m: (((.meta.systemName // .meta.system // "") | tostring) | ascii_downcase),
+                      u: (if (.url // "") == "" then "" else ("https://" + .url) end)
+                    }
+                  | select(.u != "")
+                  | select(.m == $nameLower or .n == $nameLower or .n == $dirLower)
+                  | .u
+                ] | first // $runUrl
+              )
+            )
+          ')
+
+          RESULT_VALUE="${DEPLOY_RESULT}"
+          if [ -z "${RESULT_VALUE}" ]; then
+            RESULT_VALUE="${FRONTEND_RESULT}"
+          fi
+          if [ -z "${RESULT_VALUE}" ]; then
+            RESULT_VALUE="unknown"
+          fi
+
+          RESULTS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c --arg result "${RESULT_VALUE}" 'reduce .[] as $s ({}; .[$s.name] = $result)')
+
+          echo "deployment_urls_json=${DEPLOYMENT_URLS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "results_json=${RESULTS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "versions_json=${VERSIONS_JSON}" >> "$GITHUB_OUTPUT"
+
+  playwright-e2e-postdeploy:
+    name: "Playwright E2E — Post-Deploy (${{ matrix.system.name }})"
+    needs: [active-systems, frontend, qa-controls, deploy-preview, prepare-promotion-payload]
+    if: >-
+      always() &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') &&
+      needs.qa-controls.outputs.enable_playwright == 'true' &&
+      (needs.deploy-preview.result == 'success' || needs.deploy-preview.result == 'skipped') &&
+      needs.prepare-promotion-payload.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/playwright-e2e.yml
+    with:
+      working-directory: ${{ matrix.system.dir }}
+      system-name: ${{ matrix.system.name }}
+      browser-list: ${{ needs.qa-controls.outputs.playwright_browsers }}
+      e2e-base-url: ${{ needs.qa-controls.outputs.e2e_base_url != '' && needs.qa-controls.outputs.e2e_base_url || fromJson(needs.prepare-promotion-payload.outputs.deployment_urls_json)[matrix.system.name] }}
+      run-only-on-branch: ${{ needs.qa-controls.outputs.playwright_run_only_on_branch }}
+      parallel-mode: matrix
+      max-parallel: 3
+      fail-fast: false
+      upload-artifacts: true
+    secrets: inherit
+
+  resolve-k6-target-postdeploy:
+    name: "Resolve k6 Target URL (Post-Deploy)"
+    needs: [qa-controls, active-systems, prepare-promotion-payload]
+    if: >-
+      always() &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      needs.qa-controls.outputs.enable_grafana_k6 == 'true' &&
+      needs.prepare-promotion-payload.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      target_base_url: ${{ steps.resolve.outputs.target_base_url }}
+      target_source: ${{ steps.resolve.outputs.target_source }}
+      target_system_name: ${{ steps.resolve.outputs.target_system_name }}
+    steps:
+      - name: Resolve target URL
+        id: resolve
+        env:
+          INPUT_K6_BASE_URL: ${{ needs.qa-controls.outputs.k6_base_url }}
+          INPUT_K6_TARGET_SYSTEM_NAME: ${{ needs.qa-controls.outputs.k6_target_system_name }}
+          ACTIVE_SYSTEMS_JSON: ${{ needs.active-systems.outputs.active_systems_json }}
+          DEPLOYMENT_URLS_JSON: ${{ needs.prepare-promotion-payload.outputs.deployment_urls_json }}
+        run: |
+          TARGET_BASE_URL="${INPUT_K6_BASE_URL}"
+          TARGET_SOURCE="explicit_k6_base_url"
+          TARGET_SYSTEM_NAME=""
+
+          if [ -z "${TARGET_BASE_URL}" ]; then
+            TARGET_SOURCE="unresolved"
+
+            if [ -n "${INPUT_K6_TARGET_SYSTEM_NAME}" ]; then
+              TARGET_SYSTEM_NAME="${INPUT_K6_TARGET_SYSTEM_NAME}"
+              TARGET_BASE_URL=$(echo "${DEPLOYMENT_URLS_JSON}" | jq -r --arg name "${TARGET_SYSTEM_NAME}" '.[$name] // ""')
+
+              if [ -z "${TARGET_BASE_URL}" ]; then
+                AVAILABLE_KEYS=$(echo "${DEPLOYMENT_URLS_JSON}" | jq -r 'keys | join(", ")')
+                echo "❌ k6_target_system_name '${TARGET_SYSTEM_NAME}' not found in deployment URLs."
+                echo "Available systems: ${AVAILABLE_KEYS}"
+                exit 1
+              fi
+
+              TARGET_SOURCE="explicit_k6_target_system_name"
+            fi
+
+            if [ -z "${TARGET_BASE_URL}" ]; then
+              ROOT_SYSTEM_NAME=$(echo "${ACTIVE_SYSTEMS_JSON}" | jq -r '.[] | select((.dir // "") == "." or (.dir // "") == "./") | .name' | head -n 1)
+              if [ -n "${ROOT_SYSTEM_NAME}" ]; then
+                TARGET_BASE_URL=$(echo "${DEPLOYMENT_URLS_JSON}" | jq -r --arg name "${ROOT_SYSTEM_NAME}" '.[$name] // ""')
+                if [ -n "${TARGET_BASE_URL}" ]; then
+                  TARGET_SOURCE="root_dir_system"
+                  TARGET_SYSTEM_NAME="${ROOT_SYSTEM_NAME}"
+                fi
+              fi
+            fi
+
+            if [ -z "${TARGET_BASE_URL}" ]; then
+              TARGET_BASE_URL=$(echo "${DEPLOYMENT_URLS_JSON}" | jq -r 'to_entries | .[0].value // ""')
+              if [ -n "${TARGET_BASE_URL}" ]; then
+                TARGET_SOURCE="deployment_urls_first_entry"
+              fi
+            fi
+          fi
+
+          if [ -z "${TARGET_BASE_URL}" ]; then
+            echo "❌ Unable to resolve k6 target base URL."
+            exit 1
+          fi
+
+          echo "target_base_url=${TARGET_BASE_URL}" >> "$GITHUB_OUTPUT"
+          echo "target_source=${TARGET_SOURCE}" >> "$GITHUB_OUTPUT"
+          echo "target_system_name=${TARGET_SYSTEM_NAME}" >> "$GITHUB_OUTPUT"
+
+  grafana-k6-postdeploy:
+    name: "Grafana k6 — Post-Deploy"
+    needs: [active-systems, frontend, qa-controls, deploy-preview, prepare-promotion-payload, resolve-k6-target-postdeploy]
+    if: >-
+      always() &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') &&
+      needs.qa-controls.outputs.enable_grafana_k6 == 'true' &&
+      (needs.deploy-preview.result == 'success' || needs.deploy-preview.result == 'skipped') &&
+      needs.resolve-k6-target-postdeploy.result == 'success' &&
+      needs.prepare-promotion-payload.result == 'success'
+    uses: ./.github/workflows/grafana-k6.yml
+    with:
+      system-name: ${{ needs.active-systems.outputs.active_label }}
+      working-directory: .
+      script-path: ${{ needs.qa-controls.outputs.k6_script_path }}
+      target-base-url: ${{ needs.resolve-k6-target-postdeploy.outputs.target_base_url }}
+      run-only-on-branch: ${{ needs.qa-controls.outputs.k6_run_only_on_branch }}
+      upload-artifacts: true
+    secrets: inherit
+
+  enforce-e2e-k6:
+    name: "E2E + k6 Enforcement Gate"
+    needs: [qa-controls, active-systems, playwright-e2e-postdeploy, grafana-k6-postdeploy]
+    if: always() && fromJson(needs.active-systems.outputs.active_count) > 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Enforce Playwright and k6 checks on configured branches
+        env:
+          REQUIRE_E2E_K6: ${{ needs.qa-controls.outputs.require_e2e_k6 }}
+          ENABLE_PLAYWRIGHT: ${{ needs.qa-controls.outputs.enable_playwright }}
+          ENABLE_GRAFANA_K6: ${{ needs.qa-controls.outputs.enable_grafana_k6 }}
+          PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e-postdeploy.result }}
+          K6_RESULT: ${{ needs.grafana-k6-postdeploy.result }}
+        run: |
+          if [ "${REQUIRE_E2E_K6}" != "true" ]; then
+            echo "ℹ️ E2E + k6 enforcement is not required for this branch."
+            exit 0
+          fi
+
+          if [ "${ENABLE_PLAYWRIGHT}" != "true" ]; then
+            echo "❌ Enforcement failed: Playwright is disabled on an enforced branch."
+            exit 1
+          fi
+
+          if [ "${ENABLE_GRAFANA_K6}" != "true" ]; then
+            echo "❌ Enforcement failed: Grafana k6 is disabled on an enforced branch."
+            exit 1
+          fi
+
+          if [ "${PLAYWRIGHT_RESULT}" != "success" ]; then
+            echo "❌ Enforcement failed: Playwright result is '${PLAYWRIGHT_RESULT}'."
+            exit 1
+          fi
+
+          if [ "${K6_RESULT}" != "success" ]; then
+            echo "❌ Enforcement failed: Grafana k6 result is '${K6_RESULT}'."
+            exit 1
+          fi
+
+          echo "✅ Enforcement passed: Playwright and Grafana k6 succeeded."
+
+  create-pr-to-uat:
+    name: "Create PR → UAT"
+    needs: [systems-config, frontend, sonarcloud, playwright-e2e-postdeploy, version-test, deploy-preview, active-systems, prepare-promotion-payload, grafana-k6-postdeploy, enforce-e2e-k6, docker-security-gate]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/test' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.run_promotion == true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') &&
+      (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') &&
+      (needs.playwright-e2e-postdeploy.result == 'success' || needs.playwright-e2e-postdeploy.result == 'skipped') &&
+      (needs.grafana-k6-postdeploy.result == 'success' || needs.grafana-k6-postdeploy.result == 'skipped') &&
+      needs.enforce-e2e-k6.result == 'success' &&
+      needs.docker-security-gate.result == 'success' &&
+      needs.version-test.result == 'success' &&
+      (needs.deploy-preview.result == 'success' || needs.deploy-preview.result == 'skipped') &&
+      needs.prepare-promotion-payload.result == 'success'
+    uses: ./.github/workflows/promotion.yml
+    with:
+      pipeline-kind: ${{ needs.systems-config.outputs.pipeline_mode }}
+      direction: test-to-uat
+      systems-json: ${{ needs.active-systems.outputs.active_systems_json }}
+      deployment-urls-json: ${{ needs.prepare-promotion-payload.outputs.deployment_urls_json }}
+      results-json: ${{ needs.prepare-promotion-payload.outputs.results_json }}
+      versions-json: ${{ needs.prepare-promotion-payload.outputs.versions_json }}
+      system1-result: ${{ needs.frontend.result }}
+      tests-status: ${{ needs.frontend.result }}
+      lint-status: ${{ needs.frontend.result }}
+      security-status: ${{ needs.frontend.result }}
+      sonar-status: ${{ needs.sonarcloud.result }}
+      playwright-status: ${{ needs.playwright-e2e-postdeploy.result }}
+      grafana-status: ${{ needs.grafana-k6-postdeploy.result }}
+      pipeline-result: ${{ (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') && (needs.playwright-e2e-postdeploy.result == 'success' || needs.playwright-e2e-postdeploy.result == 'skipped') && (needs.grafana-k6-postdeploy.result == 'success' || needs.grafana-k6-postdeploy.result == 'skipped') && 'success' || (needs.frontend.result == 'cancelled' || needs.sonarcloud.result == 'cancelled' || needs.playwright-e2e-postdeploy.result == 'cancelled' || needs.grafana-k6-postdeploy.result == 'cancelled') && 'cancelled' || 'failure' }}
+      dry-run: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.dry_run == true }}
+    secrets:
+      PR_TOKEN: ${{ secrets.GH_PR_TOKEN != '' && secrets.GH_PR_TOKEN || github.token }}
+
+  create-pr-to-main:
+    name: "Create PR → Main"
+    needs: [systems-config, frontend, sonarcloud, playwright-e2e-postdeploy, deploy-preview, active-systems, prepare-promotion-payload, grafana-k6-postdeploy, enforce-e2e-k6, version-uat, docker-security-gate]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/uat' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.run_promotion == true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') &&
+      (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') &&
+      (needs.playwright-e2e-postdeploy.result == 'success' || needs.playwright-e2e-postdeploy.result == 'skipped') &&
+      (needs.grafana-k6-postdeploy.result == 'success' || needs.grafana-k6-postdeploy.result == 'skipped') &&
+      needs.enforce-e2e-k6.result == 'success' &&
+      needs.docker-security-gate.result == 'success' &&
+      (needs.deploy-preview.result == 'success' || needs.deploy-preview.result == 'skipped') &&
+      needs.prepare-promotion-payload.result == 'success' &&
+      needs.version-uat.result == 'success'
+    uses: ./.github/workflows/promotion.yml
+    with:
+      pipeline-kind: ${{ needs.systems-config.outputs.pipeline_mode }}
+      direction: uat-to-main
+      systems-json: ${{ needs.active-systems.outputs.active_systems_json }}
+      deployment-urls-json: ${{ needs.prepare-promotion-payload.outputs.deployment_urls_json }}
+      results-json: ${{ needs.prepare-promotion-payload.outputs.results_json }}
+      versions-json: ${{ needs.prepare-promotion-payload.outputs.versions_json }}
+      system1-result: ${{ needs.frontend.result }}
+      tests-status: ${{ needs.frontend.result }}
+      lint-status: ${{ needs.frontend.result }}
+      security-status: ${{ needs.frontend.result }}
+      sonar-status: ${{ needs.sonarcloud.result }}
+      playwright-status: ${{ needs.playwright-e2e-postdeploy.result }}
+      grafana-status: ${{ needs.grafana-k6-postdeploy.result }}
+      pipeline-result: ${{ (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') && (needs.playwright-e2e-postdeploy.result == 'success' || needs.playwright-e2e-postdeploy.result == 'skipped') && (needs.grafana-k6-postdeploy.result == 'success' || needs.grafana-k6-postdeploy.result == 'skipped') && 'success' || (needs.frontend.result == 'cancelled' || needs.sonarcloud.result == 'cancelled' || needs.playwright-e2e-postdeploy.result == 'cancelled' || needs.grafana-k6-postdeploy.result == 'cancelled') && 'cancelled' || 'failure' }}
+      dry-run: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.dry_run == true }}
+    secrets:
+      PR_TOKEN: ${{ secrets.GH_PR_TOKEN != '' && secrets.GH_PR_TOKEN || github.token }}
+
+  prepare-notify-prod-payload:
+    name: "Prepare Notify Payload (MAIN)"
+    needs: [active-systems, deploy-prod]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.deploy-prod.result == 'success' || needs.deploy-prod.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      deployment_urls_json: ${{ steps.build.outputs.deployment_urls_json }}
+    steps:
+      - name: Build payload JSON
+        id: build
+        env:
+          SYSTEMS_JSON: ${{ needs.active-systems.outputs.active_systems_json }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          RESPONSE=$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" "https://api.vercel.com/v6/deployments?target=production&meta-githubCommitSha=${COMMIT_SHA}&limit=100")
+          if ! echo "${RESPONSE}" | jq -e . >/dev/null 2>&1; then
+            RESPONSE='{"deployments":[]}'
+          fi
+
+          DEPLOYMENT_URLS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c --argjson data "${RESPONSE}" --arg runUrl "${RUN_URL}" '
+            reduce .[] as $s ({};
+              ($s.name // "") as $name |
+              ($s.dir // "" | gsub("^\\./"; "") | split("/")[0]) as $dirKey |
+              ($name | ascii_downcase) as $nameLower |
+              ($dirKey | ascii_downcase) as $dirLower |
+              .[$name] = (
+                [ $data.deployments[]?
+                  | select((.state // "") == "READY")
+                  | {
+                      n: ((.name // "") | ascii_downcase),
+                      m: (((.meta.systemName // .meta.system // "") | tostring) | ascii_downcase),
+                      u: (if (.url // "") == "" then "" else ("https://" + .url) end)
+                    }
+                  | select(.u != "")
+                  | select(.m == $nameLower or .n == $nameLower or .n == $dirLower)
+                  | .u
+                ] | first // $runUrl
+              )
+            )
+          ')
+
+          echo "deployment_urls_json=${DEPLOYMENT_URLS_JSON}" >> "$GITHUB_OUTPUT"
+
+  pipeline-summary:
+    name: "Pipeline Summary"
+    needs: [systems-config, frontend, sonarcloud, playwright-e2e, playwright-e2e-postdeploy, active-systems, grafana-k6-postdeploy, enforce-e2e-k6]
+    if: always()
+    uses: ./.github/workflows/pipeline-summary.yml
+    with:
+      pipeline-kind: ${{ needs.systems-config.outputs.pipeline_mode }}
+      systems-json: ${{ needs.active-systems.outputs.active_systems_json }}
+      results-json: '{}'
+      overall-result: ${{ (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') && (((github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && (needs.playwright-e2e-postdeploy.result == 'success' || needs.playwright-e2e-postdeploy.result == 'skipped')) || ((github.ref_name == 'main' || github.base_ref == 'main') && (needs.playwright-e2e.result == 'success' || needs.playwright-e2e.result == 'skipped'))) && ((github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && (needs.grafana-k6-postdeploy.result == 'success' || needs.grafana-k6-postdeploy.result == 'skipped') || (github.ref_name == 'main' || github.base_ref == 'main')) && needs.enforce-e2e-k6.result == 'success' && 'success' || (needs.frontend.result == 'cancelled' || needs.sonarcloud.result == 'cancelled' || needs.playwright-e2e.result == 'cancelled' || needs.playwright-e2e-postdeploy.result == 'cancelled' || needs.grafana-k6-postdeploy.result == 'cancelled') && 'cancelled' || 'failure' }}
+
+  auto-revert-on-failure:
+    name: "Auto Revert on Failure"
+    permissions:
+      contents: write
+    needs:
+      [
+        systems-config,
+        active-systems,
+        frontend,
+        sonarcloud,
+        playwright-e2e,
+        grafana-k6-postdeploy,
+        enforce-e2e-k6,
+        version-test,
+        deploy-preview,
+        production-gate,
+        deploy-prod,
+        update-about-link,
+        version-main-release,
+        docker-main,
+        prepare-promotion-payload,
+        create-pr-to-uat,
+        create-pr-to-main,
+        pipeline-summary,
+      ]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.repository != 'ImplementSprint/greenovate-fe' && github.repository != 'ImplementSprint/central-workflow' && github.repository != 'ImplementSprint/sho-team-fe' && github.repository != 'ImplementSprint/trini-thrive' &&
+      (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/main') &&
+      (
+        (github.ref == 'refs/heads/uat' && (needs.deploy-preview.result == 'failure' || needs.production-gate.result == 'failure')) ||
+        (github.ref == 'refs/heads/main' && (needs.deploy-prod.result == 'failure' || needs.update-about-link.result == 'failure' || needs.version-main-release.result == 'failure' || needs.docker-main.result == 'failure'))
+      ) &&
+      !contains(github.event.head_commit.message, '[skip-revert]') &&
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      !contains(github.event.head_commit.message, '[ci skip]') &&
+      !startsWith(github.event.head_commit.message, 'Revert "')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Cooldown before auto-revert
+        run: sleep 45
+
+      - name: Create rollback commit
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+          DEPLOY_UAT_RESULT: ${{ needs.deploy-preview.result }}
+          PRODUCTION_GATE_RESULT: ${{ needs.production-gate.result }}
+          DEPLOY_PROD_RESULT: ${{ needs.deploy-prod.result }}
+          UPDATE_ABOUT_LINK_RESULT: ${{ needs.update-about-link.result }}
+          VERSION_MAIN_RELEASE_RESULT: ${{ needs.version-main-release.result }}
+          DOCKER_MAIN_RESULT: ${{ needs.docker-main.result }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin "${BRANCH_NAME}" --depth=50
+          git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+
+          export GIT_EDITOR=:
+
+          if git revert --no-edit "${GITHUB_SHA}"; then
+            git commit --amend -m "$(git log -1 --pretty=%B) [skip-revert]"
+            echo "✅ Created revert commit from ${GITHUB_SHA}."
+          elif git revert -m 1 --no-edit "${GITHUB_SHA}"; then
+            git commit --amend -m "$(git log -1 --pretty=%B) [skip-revert]"
+            echo "✅ Created merge-revert commit from ${GITHUB_SHA}."
+          else
+            git revert --abort || true
+            SHORT_SHA="${GITHUB_SHA:0:7}"
+            FAILED_JOBS=""
+            [ "${DEPLOY_UAT_RESULT}" = "failure" ] && FAILED_JOBS="${FAILED_JOBS},deploy-preview"
+            [ "${PRODUCTION_GATE_RESULT}" = "failure" ] && FAILED_JOBS="${FAILED_JOBS},production-gate"
+            [ "${DEPLOY_PROD_RESULT}" = "failure" ] && FAILED_JOBS="${FAILED_JOBS},deploy-prod"
+            [ "${UPDATE_ABOUT_LINK_RESULT}" = "failure" ] && FAILED_JOBS="${FAILED_JOBS},update-about-link"
+            [ "${VERSION_MAIN_RELEASE_RESULT}" = "failure" ] && FAILED_JOBS="${FAILED_JOBS},version-main-release"
+            [ "${DOCKER_MAIN_RESULT}" = "failure" ] && FAILED_JOBS="${FAILED_JOBS},docker-main"
+            FAILED_JOBS="${FAILED_JOBS#,}"
+            if [ -z "${FAILED_JOBS}" ]; then
+              FAILED_JOBS="unknown"
+            fi
+            RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            git commit --allow-empty -m "ci(auto-revert): manual rollback required for ${SHORT_SHA} [skip-revert]" -m "failed_jobs=${FAILED_JOBS}" -m "run_url=${RUN_URL}"
+            echo "⚠️ Automatic revert conflicted; created marker commit for manual rollback."
+          fi
+
+          git push origin "HEAD:${BRANCH_NAME}"
+
+  notify-pipeline:
+    name: "Notify Pipeline Status"
+    needs: [systems-config, pipeline-summary, frontend, sonarcloud, playwright-e2e, playwright-e2e-postdeploy, grafana-k6-postdeploy, enforce-e2e-k6, active-systems, auto-revert-on-failure, prepare-promotion-payload, prepare-notify-prod-payload]
+    if: always()
+    uses: ./.github/workflows/notifications.yml
+    with:
+      status: ${{ (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') && (((github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && (needs.playwright-e2e-postdeploy.result == 'success' || needs.playwright-e2e-postdeploy.result == 'skipped')) || ((github.ref_name == 'main' || github.base_ref == 'main') && (needs.playwright-e2e.result == 'success' || needs.playwright-e2e.result == 'skipped'))) && ((github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && (needs.grafana-k6-postdeploy.result == 'success' || needs.grafana-k6-postdeploy.result == 'skipped') || (github.ref_name == 'main' || github.base_ref == 'main')) && needs.enforce-e2e-k6.result == 'success' && 'success' || ((needs.frontend.result == 'cancelled' || needs.sonarcloud.result == 'cancelled' || needs.playwright-e2e.result == 'cancelled' || needs.playwright-e2e-postdeploy.result == 'cancelled' || needs.grafana-k6-postdeploy.result == 'cancelled') && 'cancelled' || 'failure') }}
+      system-dir: ${{ needs.active-systems.outputs.active_label }}
+      pipeline-type: ${{ needs.systems-config.outputs.pipeline_mode == 'single' && 'FE Single Master' || 'FE Multi Master' }}
+      error-details: ${{ ((needs.frontend.result != 'success' && needs.frontend.result != 'skipped') || (needs.sonarcloud.result != 'success' && needs.sonarcloud.result != 'skipped') || ((github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && (needs.playwright-e2e-postdeploy.result != 'success' && needs.playwright-e2e-postdeploy.result != 'skipped')) || ((github.ref_name == 'main' || github.base_ref == 'main') && (needs.playwright-e2e.result != 'success' && needs.playwright-e2e.result != 'skipped')) || ((github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && (needs.grafana-k6-postdeploy.result != 'success' && needs.grafana-k6-postdeploy.result != 'skipped')) || needs.enforce-e2e-k6.result != 'success') && (needs.systems-config.outputs.pipeline_mode == 'single' && 'Master FE single pipeline reported failures.' || 'Master FE multi pipeline reported failures.') || '' }}
+      deployment-url: ''
+      deployment-urls-json: ${{ (github.ref_name == 'main' || github.base_ref == 'main') && needs.prepare-notify-prod-payload.outputs.deployment_urls_json || ((github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && needs.prepare-promotion-payload.outputs.deployment_urls_json || '{}') }}
+      success-image-url: ${{ vars.DISCORD_SUCCESS_IMAGE_URL }}
+      failure-image-url: ${{ vars.DISCORD_FAIL_IMAGE_URL }}
+      cancelled-image-url: ${{ vars.DISCORD_CANCELLED_IMAGE_URL }}
+      tests-status: ${{ needs.frontend.result }}
+      lint-status: ${{ needs.frontend.result }}
+      security-status: ${{ needs.frontend.result }}
+      sonar-status: ${{ needs.sonarcloud.result }}
+      playwright-status: ${{ (github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && needs.playwright-e2e-postdeploy.result || needs.playwright-e2e.result }}
+      grafana-status: ${{ (github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && needs.grafana-k6-postdeploy.result || 'skipped' }}
+      enforce-gate-status: ${{ needs.enforce-e2e-k6.result }}
+      versions-json: ${{ (github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && needs.prepare-promotion-payload.outputs.versions_json || '{}' }}
+      pipeline-result: ${{ (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && (needs.sonarcloud.result == 'success' || needs.sonarcloud.result == 'skipped') && (((github.ref_name == 'test' || github.base_ref == 'test' || github.ref_name == 'uat' || github.base_ref == 'uat') && (needs.playwright-e2e-postdeploy.result == 'success' || needs.playwright-e2e-postdeploy.result == 'skipped')) || ((github.ref_name == 'main' || github.base_ref == 'main') && (needs.playwright-e2e.result == 'success' || needs.playwright-e2e.result == 'skipped'))) && needs.enforce-e2e-k6.result == 'success' && 'success' || 'failure' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}

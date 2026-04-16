@@ -1,0 +1,84 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  REUSABLE: Lint & Code Style                                   ║
+# ║  ESLint + Prettier for JS/TS projects                         ║
+# ╚══════════════════════════════════════════════════════════════════╝
+name: "Reusable: Lint & Code Style"
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: false
+        type: string
+        default: "."
+        description: "Project directory"
+      system-name:
+        required: true
+        type: string
+        description: "System name for display"
+      node-version:
+        required: false
+        type: number
+        default: 24
+        description: "Node.js version"
+      lint-command:
+        required: false
+        type: string
+        default: "npx eslint . --max-warnings=0 --ignore-pattern '**/*.k6.js' --ignore-pattern '**/*.k6.ts'"
+        description: "Lint command to run"
+      format-check-command:
+        required: false
+        type: string
+        default: ""
+        description: "Format check command (e.g. npx prettier --check .)"
+      fail-on-warning:
+        required: false
+        type: boolean
+        default: false
+        description: "Fail on ESLint warnings"
+    outputs:
+      lint-result:
+        description: "Lint pass/fail"
+        value: ${{ jobs.lint-check.outputs.result }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint-check:
+    name: "Lint & Style Check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      result: ${{ steps.lint.outcome }}
+    defaults:
+      run:
+        working-directory: ./${{ inputs.working-directory }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: "npm"
+          cache-dependency-path: |
+            **/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run Linter
+        id: lint
+        run: |
+          echo "🔍 Running lint checks..."
+          ${{ inputs.lint-command }}
+          echo "✅ Lint checks passed"
+
+      - name: Check Code Formatting
+        if: ${{ inputs.format-check-command != '' }}
+        run: |
+          echo "🎨 Checking code formatting..."
+          ${{ inputs.format-check-command }}
+          echo "✅ Formatting is consistent"

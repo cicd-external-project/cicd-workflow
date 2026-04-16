@@ -1,0 +1,1502 @@
+name: "Master Pipeline Orchestrator — Mobile"
+
+on:
+  push:
+    branches: [test, uat, main]
+  pull_request:
+    branches: [test, uat, main]
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      pipeline_mode:
+        description: "Pipeline mode (auto|single|multi)"
+        type: choice
+        options: [auto, single, multi]
+        default: auto
+      stack_filter:
+        description: "Optional stack filter (all|expo|react-native|kotlin)"
+        type: choice
+        options: [all, expo, react-native, kotlin]
+        default: all
+      enable_grafana_k6:
+        description: "Run Grafana k6 cloud checks"
+        type: boolean
+        default: false
+      k6_script_path:
+        description: "Path to k6 script or performance tests directory"
+        type: string
+        default: "tests/performance"
+      k6_base_url:
+        description: "Optional base URL for k6"
+        type: string
+        default: ""
+      k6_run_only_on_branch:
+        description: "Branch allowed for k6 execution"
+        type: string
+        default: "test,uat,main"
+      enable_lint:
+        description: "Run lint checks (overrides per-system JSON)"
+        type: boolean
+        default: true
+      enable_security_scan:
+        description: "Run security scan (overrides per-system JSON)"
+        type: boolean
+        default: true
+      enable_sonar:
+        description: "Run SonarCloud analysis (overrides per-system JSON)"
+        type: boolean
+        default: true
+      enable_governance:
+        description: "Run governance checks (overrides per-system JSON)"
+        type: boolean
+        default: true
+      enable_maestro:
+        description: "Run Maestro Android E2E (overrides per-system JSON)"
+        type: boolean
+        default: true
+      enable_maestro_ios:
+        description: "Run Maestro iOS E2E (overrides per-system JSON)"
+        type: boolean
+        default: true
+      run_deploy:
+        description: "Reserved for compatibility with FE callers"
+        type: boolean
+        default: true
+      run_promotion:
+        description: "Reserved for compatibility with FE callers"
+        type: boolean
+        default: true
+      dry_run:
+        description: "Preview-only mode (skip version tag push)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      pipeline_mode:
+        description: "Pipeline mode (auto|single|multi)"
+        type: string
+        default: auto
+      stack_filter:
+        description: "Optional stack filter (all|expo|react-native|kotlin)"
+        type: string
+        default: all
+      enable_grafana_k6:
+        description: "Run Grafana k6 cloud checks"
+        type: boolean
+        default: false
+      k6_script_path:
+        description: "Path to k6 script or performance tests directory"
+        type: string
+        default: "tests/performance"
+      k6_base_url:
+        description: "Optional base URL for k6"
+        type: string
+        default: ""
+      k6_run_only_on_branch:
+        description: "Branch allowed for k6 execution"
+        type: string
+        default: "test,uat,main"
+      enable_lint:
+        description: "Run lint checks (overrides per-system JSON)"
+        type: boolean
+        default: true
+      enable_security_scan:
+        description: "Run security scan (overrides per-system JSON)"
+        type: boolean
+        default: true
+      enable_sonar:
+        description: "Run SonarCloud analysis (overrides per-system JSON)"
+        type: boolean
+        default: true
+      enable_governance:
+        description: "Run governance checks (overrides per-system JSON)"
+        type: boolean
+        default: true
+      enable_maestro:
+        description: "Run Maestro Android E2E (overrides per-system JSON)"
+        type: boolean
+        default: true
+      enable_maestro_ios:
+        description: "Run Maestro iOS E2E (overrides per-system JSON)"
+        type: boolean
+        default: true
+      run_deploy:
+        description: "Reserved for compatibility with FE callers"
+        type: boolean
+        default: true
+      run_promotion:
+        description: "Reserved for compatibility with FE callers"
+        type: boolean
+        default: true
+      dry_run:
+        description: "Preview-only mode (skip version tag push)"
+        type: boolean
+        default: false
+    secrets:
+      SONAR_TOKEN:
+        required: false
+      SONAR_PROJECT_KEY:
+        required: false
+      SONAR_ORGANIZATION:
+        required: false
+
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+  security-events: write
+
+concurrency:
+  group: master-pipeline-mobile-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  systems-config:
+    name: "Resolve Mobile Systems Configuration"
+    if: ${{ github.repository != 'ImplementSprint/central-workflow' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      systems_json: ${{ steps.skip-check.outputs.skip == 'true' && '[]' || steps.resolve.outputs.systems_json }}
+      systems_label: ${{ steps.skip-check.outputs.skip == 'true' && 'Skipped (dedupe/promotion policy)' || steps.resolve.outputs.systems_label }}
+      pipeline_mode: ${{ steps.skip-check.outputs.skip == 'true' && 'skip' || steps.resolve.outputs.pipeline_mode }}
+    steps:
+      - name: Apply run dedupe and promotion PR policy
+        id: skip-check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            case "${{ github.ref_name }}" in
+              test|uat|main)
+                echo "ℹ️ Protected branch push detected ('${{ github.ref_name }}'); keeping push run active."
+                ;;
+              *)
+                API_URL="${{ github.api_url }}/repos/${{ github.repository }}/pulls?state=open&head=${{ github.repository_owner }}:${{ github.ref_name }}&per_page=1"
+                OPEN_PR_COUNT=$(curl -fsSL \
+                  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "${API_URL}" | jq 'length')
+
+                if [ "${OPEN_PR_COUNT}" -gt 0 ]; then
+                  echo "⏭️ Skipping push run for branch '${{ github.ref_name }}' because an open PR already exists."
+                  echo "skip=true" >> "$GITHUB_OUTPUT"
+                  exit 0
+                fi
+                ;;
+            esac
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve systems JSON
+        if: steps.skip-check.outputs.skip != 'true'
+        id: resolve
+        env:
+          MOBILE_SINGLE_SYSTEMS_JSON_VAR: ${{ vars.MOBILE_SINGLE_SYSTEMS_JSON }}
+          MOBILE_MULTI_SYSTEMS_JSON_VAR: ${{ vars.MOBILE_MULTI_SYSTEMS_JSON }}
+          REQUESTED_PIPELINE_MODE: ${{ inputs.pipeline_mode }}
+        run: |
+          MODE_INPUT="${REQUESTED_PIPELINE_MODE}"
+          if [ -z "${MODE_INPUT}" ]; then
+            MODE_INPUT="auto"
+          fi
+
+          SYSTEMS_JSON_VAR=""
+          PIPELINE_MODE=""
+
+          if [ "${MODE_INPUT}" = "single" ]; then
+            if [ -n "${MOBILE_SINGLE_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${MOBILE_SINGLE_SYSTEMS_JSON_VAR}"
+            elif [ -n "${MOBILE_MULTI_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${MOBILE_MULTI_SYSTEMS_JSON_VAR}"
+            fi
+            PIPELINE_MODE="single"
+          elif [ "${MODE_INPUT}" = "multi" ]; then
+            if [ -n "${MOBILE_MULTI_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${MOBILE_MULTI_SYSTEMS_JSON_VAR}"
+            elif [ -n "${MOBILE_SINGLE_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${MOBILE_SINGLE_SYSTEMS_JSON_VAR}"
+            fi
+            PIPELINE_MODE="multi"
+          else
+            if [ -n "${MOBILE_MULTI_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${MOBILE_MULTI_SYSTEMS_JSON_VAR}"
+            elif [ -n "${MOBILE_SINGLE_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${MOBILE_SINGLE_SYSTEMS_JSON_VAR}"
+            fi
+          fi
+
+          if [ -z "${SYSTEMS_JSON_VAR}" ]; then
+            echo "❌ Missing required repository variable MOBILE_MULTI_SYSTEMS_JSON or MOBILE_SINGLE_SYSTEMS_JSON."
+            exit 1
+          fi
+
+          SYSTEMS_JSON="${SYSTEMS_JSON_VAR}"
+
+          echo "${SYSTEMS_JSON}" | jq -e . >/dev/null
+
+          SYSTEMS_JSON_TYPE=$(echo "${SYSTEMS_JSON}" | jq -r 'type')
+          if [ "${SYSTEMS_JSON_TYPE}" = "object" ]; then
+            SYSTEMS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c '[.]')
+          elif [ "${SYSTEMS_JSON_TYPE}" = "array" ]; then
+            SYSTEMS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c .)
+          else
+            echo "❌ Mobile systems JSON must be an object (single) or array (single/multi)."
+            exit 1
+          fi
+
+          echo "${SYSTEMS_JSON}" | jq -e 'length > 0' >/dev/null
+          echo "${SYSTEMS_JSON}" | jq -e 'all(.[]; (.name|type=="string" and length>0) and (.dir|type=="string" and length>0))' >/dev/null
+
+          SYSTEMS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c '
+            map(
+              . + {
+                version_stream: (
+                  ((.version_stream // .name // .dir // "mobile") | ascii_downcase | gsub("[^a-z0-9]+"; "-") | gsub("(^-+|-+$)"; ""))
+                  | if length > 0 then . else "mobile" end
+                )
+              }
+            )
+          ')
+
+          if [ -z "${PIPELINE_MODE}" ]; then
+            SYSTEMS_COUNT=$(echo "${SYSTEMS_JSON}" | jq 'length')
+            if [ "${SYSTEMS_COUNT}" -gt 1 ]; then
+              PIPELINE_MODE="multi"
+            else
+              PIPELINE_MODE="single"
+            fi
+          fi
+
+          SYSTEMS_LABEL=$(echo "${SYSTEMS_JSON}" | jq -r 'map(.name) | join(", ")')
+
+          echo "systems_json=${SYSTEMS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "systems_label=${SYSTEMS_LABEL}" >> "$GITHUB_OUTPUT"
+          echo "pipeline_mode=${PIPELINE_MODE}" >> "$GITHUB_OUTPUT"
+
+  qa-controls:
+    name: "Resolve QA Controls"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      enable_grafana_k6: ${{ steps.resolve.outputs.enable_grafana_k6 }}
+      k6_script_path: ${{ steps.resolve.outputs.k6_script_path }}
+      k6_base_url: ${{ steps.resolve.outputs.k6_base_url }}
+      k6_run_only_on_branch: ${{ steps.resolve.outputs.k6_run_only_on_branch }}
+    steps:
+      - name: Resolve QA inputs
+        id: resolve
+        env:
+          IN_ENABLE_GRAFANA_K6: ${{ inputs.enable_grafana_k6 }}
+          IN_K6_SCRIPT_PATH: ${{ inputs.k6_script_path }}
+          IN_K6_BASE_URL: ${{ inputs.k6_base_url }}
+          IN_K6_RUN_ONLY_ON_BRANCH: ${{ inputs.k6_run_only_on_branch }}
+        run: |
+          ENABLE_GRAFANA_K6="${IN_ENABLE_GRAFANA_K6}"
+
+          if [ -z "${ENABLE_GRAFANA_K6}" ]; then
+            ENABLE_GRAFANA_K6="false"
+          fi
+
+          if [ "${ENABLE_GRAFANA_K6}" != "true" ] && [ "${ENABLE_GRAFANA_K6}" != "false" ]; then
+            ENABLE_GRAFANA_K6="false"
+          fi
+
+          K6_SCRIPT_PATH="tests/performance"
+          if [ -n "${IN_K6_SCRIPT_PATH}" ]; then
+            K6_SCRIPT_PATH="${IN_K6_SCRIPT_PATH}"
+          fi
+
+          K6_RUN_ONLY_ON_BRANCH="test,uat,main"
+          if [ -n "${IN_K6_RUN_ONLY_ON_BRANCH}" ]; then
+            K6_RUN_ONLY_ON_BRANCH="${IN_K6_RUN_ONLY_ON_BRANCH}"
+          fi
+
+          echo "enable_grafana_k6=${ENABLE_GRAFANA_K6}" >> "$GITHUB_OUTPUT"
+          echo "k6_script_path=${K6_SCRIPT_PATH}" >> "$GITHUB_OUTPUT"
+          echo "k6_base_url=${IN_K6_BASE_URL}" >> "$GITHUB_OUTPUT"
+          echo "k6_run_only_on_branch=${K6_RUN_ONLY_ON_BRANCH}" >> "$GITHUB_OUTPUT"
+
+  active-systems:
+    name: "Detect Active Mobile Systems"
+    needs: [systems-config]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      active_systems_json: ${{ steps.select.outputs.active_systems_json }}
+      active_count: ${{ steps.select.outputs.active_count }}
+      active_label: ${{ steps.select.outputs.active_label }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Select active systems
+        id: select
+        env:
+          SYSTEMS_JSON: ${{ needs.systems-config.outputs.systems_json }}
+          STACK_FILTER_INPUT: ${{ inputs.stack_filter }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "workflow_call" ]; then
+            ACTIVE="${SYSTEMS_JSON}"
+          else
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            else
+              BASE_SHA="${{ github.event.before }}"
+            fi
+
+            if [ -z "${BASE_SHA}" ] || [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
+              BASE_SHA=$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)
+            fi
+
+            CHANGED_FILES=$(git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" || true)
+            CHANGED_JSON=$(printf "%s\n" "${CHANGED_FILES}" | sed '/^$/d' | jq -R . | jq -s .)
+            SYSTEM_DIRS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c '[.[] | (.dir // "" | gsub("^\\./"; "")) | select(. != "" and . != ".")]')
+
+            SHARED_CHANGED=false
+            if printf "%s\n" "${CHANGED_FILES}" | grep -Eq '^(\.github/|package\.json$|settings\.gradle(\.kts)?$|build\.gradle(\.kts)?$|gradle\.properties$|sonar-project\.properties$)'; then
+              SHARED_CHANGED=true
+            elif echo "${CHANGED_JSON}" | jq -e --argjson dirs "${SYSTEM_DIRS_JSON}" '
+              any(.[]; . as $file | ([$dirs[]? | select($file | startswith(. + "/"))] | length) == 0)
+            ' >/dev/null; then
+              SHARED_CHANGED=true
+            fi
+
+            if [ "${SHARED_CHANGED}" = "true" ]; then
+              ACTIVE="${SYSTEMS_JSON}"
+            else
+              ACTIVE=$(echo "${SYSTEMS_JSON}" | jq -c --argjson changed "${CHANGED_JSON}" '
+                map(select(
+                  . as $system
+                  | (($system.dir | gsub("^\\./"; "")) as $dir
+                    | if ($dir == "" or $dir == ".")
+                      then ($changed | length) > 0
+                      else any($changed[]; startswith($dir + "/"))
+                      end)
+                ))
+              ')
+            fi
+          fi
+
+          STACK_FILTER="${STACK_FILTER_INPUT}"
+          if [ -z "${STACK_FILTER}" ]; then
+            STACK_FILTER="all"
+          fi
+          STACK_FILTER=$(echo "${STACK_FILTER}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[ _]+/-/g')
+
+          case "${STACK_FILTER}" in
+            all|expo|react-native|kotlin)
+              ;;
+            *)
+              echo "❌ Invalid stack_filter '${STACK_FILTER}'. Allowed values: all, expo, react-native, kotlin."
+              exit 1
+              ;;
+          esac
+
+          if [ "${STACK_FILTER}" != "all" ]; then
+            ACTIVE=$(echo "${ACTIVE}" | jq -c --arg filter "${STACK_FILTER}" '
+              def normalize_stack:
+                ((.mobile_stack // .stack // .framework // "") | ascii_downcase | gsub("[ _]"; "-")) as $raw
+                | if $raw == "rn" then "react-native"
+                  elif ($raw == "kotlin" or $raw == "android-kotlin" or $raw == "native-kotlin") then "kotlin"
+                  else $raw
+                  end;
+              map(select((normalize_stack) == $filter))
+            ')
+          fi
+
+          ACTIVE_COUNT=$(echo "${ACTIVE}" | jq 'length')
+          if [ "${ACTIVE_COUNT}" -gt 0 ]; then
+            ACTIVE_LABEL=$(echo "${ACTIVE}" | jq -r 'map(.name) | join(", ")')
+          else
+            ACTIVE_LABEL="None"
+          fi
+
+          echo "active_systems_json=${ACTIVE}" >> "$GITHUB_OUTPUT"
+          echo "active_count=${ACTIVE_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "active_label=${ACTIVE_LABEL}" >> "$GITHUB_OUTPUT"
+
+  classify-systems:
+    name: "Classify Mobile Systems"
+    needs: [active-systems]
+    if: fromJson(needs.active-systems.outputs.active_count) > 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      expo_systems_json: ${{ steps.classify.outputs.expo_systems_json }}
+      expo_count: ${{ steps.classify.outputs.expo_count }}
+      kotlin_systems_json: ${{ steps.classify.outputs.kotlin_systems_json }}
+      kotlin_count: ${{ steps.classify.outputs.kotlin_count }}
+      react_native_systems_json: ${{ steps.classify.outputs.react_native_systems_json }}
+      react_native_count: ${{ steps.classify.outputs.react_native_count }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Classify systems by stack
+        id: classify
+        env:
+          ACTIVE_SYSTEMS_JSON: ${{ needs.active-systems.outputs.active_systems_json }}
+        run: |
+          EXPO_SYSTEMS='[]'
+          KOTLIN_SYSTEMS='[]'
+          REACT_NATIVE_SYSTEMS='[]'
+
+          while IFS= read -r system; do
+            [ -z "${system}" ] && continue
+
+            SYSTEM_NAME=$(echo "${system}" | jq -r '.name // "unnamed-system"')
+
+            STACK_DECLARED=$(echo "${system}" | jq -r '(.mobile_stack // .stack // .framework // "") | ascii_downcase | gsub("[ _]"; "-")')
+
+            TARGET=""
+            case "${STACK_DECLARED}" in
+              expo)
+                TARGET="expo"
+                ;;
+              kotlin|android-kotlin|native-kotlin)
+                TARGET="kotlin"
+                ;;
+              react-native|rn)
+                TARGET="react-native"
+                ;;
+              "")
+                echo "❌ mobile_stack is required for system ${SYSTEM_NAME}. Allowed values: expo, kotlin, react-native."
+                exit 1
+                ;;
+              *)
+                echo "❌ Unsupported mobile_stack '${STACK_DECLARED}' for system ${SYSTEM_NAME}. Allowed values: expo, kotlin, react-native."
+                exit 1
+                ;;
+            esac
+
+            SYSTEM_WITH_TARGET=$(echo "${system}" | jq -c --arg target "${TARGET}" '. + { execution_target: $target }')
+
+            if [ "${TARGET}" = "kotlin" ]; then
+              KOTLIN_SYSTEMS=$(echo "${KOTLIN_SYSTEMS}" | jq -c --argjson item "${SYSTEM_WITH_TARGET}" '. + [$item]')
+            elif [ "${TARGET}" = "react-native" ]; then
+              REACT_NATIVE_SYSTEMS=$(echo "${REACT_NATIVE_SYSTEMS}" | jq -c --argjson item "${SYSTEM_WITH_TARGET}" '. + [$item]')
+            else
+              EXPO_SYSTEMS=$(echo "${EXPO_SYSTEMS}" | jq -c --argjson item "${SYSTEM_WITH_TARGET}" '. + [$item]')
+            fi
+          done < <(echo "${ACTIVE_SYSTEMS_JSON}" | jq -c '.[]')
+
+          echo "expo_systems_json=${EXPO_SYSTEMS}" >> "$GITHUB_OUTPUT"
+          echo "expo_count=$(echo "${EXPO_SYSTEMS}" | jq 'length')" >> "$GITHUB_OUTPUT"
+          echo "kotlin_systems_json=${KOTLIN_SYSTEMS}" >> "$GITHUB_OUTPUT"
+          echo "kotlin_count=$(echo "${KOTLIN_SYSTEMS}" | jq 'length')" >> "$GITHUB_OUTPUT"
+          echo "react_native_systems_json=${REACT_NATIVE_SYSTEMS}" >> "$GITHUB_OUTPUT"
+          echo "react_native_count=$(echo "${REACT_NATIVE_SYSTEMS}" | jq 'length')" >> "$GITHUB_OUTPUT"
+
+  mobile-expo:
+    name: "Mobile Expo — ${{ matrix.system.name }}"
+    needs: [classify-systems]
+    if: fromJson(needs.classify-systems.outputs.expo_count) > 0
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.classify-systems.outputs.expo_systems_json) }}
+    uses: ./.github/workflows/mobile-workflow.yml
+    with:
+      system-dir: ${{ matrix.system.dir }}
+      system-name: ${{ matrix.system.name }}
+      node-version: ${{ matrix.system.node_version || 24 }}
+      java-version: ${{ matrix.system.java_version || '17' }}
+      coverage-threshold: ${{ matrix.system.coverage_threshold || 80 }}
+      enable-lint: ${{ (inputs.enable_lint != false && inputs.enable_lint != 'false') && (matrix.system.enable_lint == null || matrix.system.enable_lint == '' || matrix.system.enable_lint == true || matrix.system.enable_lint == 'true') }}
+      enable-security-scan: ${{ (inputs.enable_security_scan != false && inputs.enable_security_scan != 'false') && (matrix.system.enable_security_scan == null || matrix.system.enable_security_scan == '' || matrix.system.enable_security_scan == true || matrix.system.enable_security_scan == 'true') }}
+      enable-governance: ${{ (inputs.enable_governance != false && inputs.enable_governance != 'false') && (matrix.system.enable_governance == null || matrix.system.enable_governance == '' || matrix.system.enable_governance == true || matrix.system.enable_governance == 'true') }}
+      enable-android-build: ${{ (matrix.system.enable_android_build == null || matrix.system.enable_android_build == '' || matrix.system.enable_android_build == true || matrix.system.enable_android_build == 'true') && (matrix.system.enable_gradle == null || matrix.system.enable_gradle == '' || matrix.system.enable_gradle == true || matrix.system.enable_gradle == 'true') }}
+      enable-ios-build: ${{ matrix.system.enable_ios_build == null || matrix.system.enable_ios_build == '' || matrix.system.enable_ios_build == true || matrix.system.enable_ios_build == 'true' }}
+      enable-maestro: ${{ (inputs.enable_maestro != false && inputs.enable_maestro != 'false') && (matrix.system.enable_maestro == null || matrix.system.enable_maestro == '' || matrix.system.enable_maestro == true || matrix.system.enable_maestro == 'true') }}
+      android-build-command: ${{ matrix.system.android_build_command || 'cd android && ./gradlew :app:assembleDebug -PbundleInDebug=true' }}
+      maestro-test-command: ${{ matrix.system.maestro_test_command || 'maestro test .maestro' }}
+      enable-maestro-ios: ${{ (inputs.enable_maestro_ios != false && inputs.enable_maestro_ios != 'false') && (matrix.system.enable_maestro_ios == null || matrix.system.enable_maestro_ios == '' || matrix.system.enable_maestro_ios == true || matrix.system.enable_maestro_ios == 'true') }}
+      ios-build-command: ${{ matrix.system.ios_build_command || '' }}
+      maestro-ios-test-command: ${{ matrix.system.maestro_ios_test_command || 'maestro test .maestro' }}
+      ios-runner: ${{ matrix.system.ios_runner || 'macos-15' }}
+      ios-xcode-version: ${{ matrix.system.ios_xcode_version || '16.2' }}
+      ios-xcode-fallbacks: ${{ matrix.system.ios_xcode_fallbacks || '16.3,16.4,26.2' }}
+    secrets: inherit
+
+  mobile-expo-release:
+    name: "Mobile Expo Release Build — ${{ matrix.system.name }}"
+    needs: [classify-systems, mobile-expo]
+    if: >-
+      always() &&
+      needs.classify-systems.result == 'success' &&
+      fromJson(needs.classify-systems.outputs.expo_count || '0') > 0 &&
+      (needs.mobile-expo.result == 'success' || needs.mobile-expo.result == 'skipped') &&
+      (github.ref == 'refs/heads/test' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/main') &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.run_deploy == true) &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.dry_run != true)
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.classify-systems.outputs.expo_systems_json) }}
+    uses: ./.github/workflows/mobile-release-build.yml
+    with:
+      system-dir: ${{ matrix.system.dir }}
+      system-name: ${{ matrix.system.name }}
+      node-version: ${{ matrix.system.node_version || 24 }}
+      java-version: ${{ matrix.system.java_version || '17' }}
+      enable-android-release-build: true
+      enable-ios-release-build: ${{ matrix.system.enable_ios_release_build == null || matrix.system.enable_ios_release_build == '' || matrix.system.enable_ios_release_build == true || matrix.system.enable_ios_release_build == 'true' }}
+      android-release-gradle-task: assembleRelease bundleRelease
+      ios-release-export-enabled: ${{ matrix.system.ios_release_export_enabled == true }}
+      ios-runner: ${{ matrix.system.ios_runner || 'macos-15' }}
+      ios-xcode-version: ${{ matrix.system.ios_xcode_version || '16.2' }}
+      ios-xcode-fallbacks: ${{ matrix.system.ios_xcode_fallbacks || '16.3,16.4,26.2' }}
+    secrets: inherit
+
+  kotlin-governance:
+    name: "Kotlin Governance — ${{ matrix.system.name }}"
+    needs: [classify-systems]
+    if: fromJson(needs.classify-systems.outputs.kotlin_count) > 0
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.classify-systems.outputs.kotlin_systems_json) }}
+    uses: ./.github/workflows/kotlin-governance-check.yml
+    with:
+      working-directory: ${{ matrix.system.dir }}
+      system-name: ${{ matrix.system.name }}
+      java-version: ${{ matrix.system.java_version || '17' }}
+      governance-task: ${{ matrix.system.kotlin_governance_task || matrix.system.governance_task || 'check' }}
+      run-governance: ${{ inputs.enable_governance != false && (matrix.system.enable_governance == true || matrix.system.enable_governance == null) }}
+      upload-artifact: true
+
+  mobile-kotlin:
+    name: "Mobile Kotlin — ${{ matrix.system.name }}"
+    needs: [classify-systems, kotlin-governance]
+    if: >-
+      fromJson(needs.classify-systems.outputs.kotlin_count) > 0 &&
+      (needs.kotlin-governance.result == 'success' || needs.kotlin-governance.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.classify-systems.outputs.kotlin_systems_json) }}
+    uses: ./.github/workflows/mobile-gradle.yml
+    with:
+      working-directory: ${{ matrix.system.dir }}
+      system-name: ${{ matrix.system.name }}
+      node-version: ${{ matrix.system.node_version || 24 }}
+      java-version: ${{ matrix.system.java_version || '17' }}
+      project-type: kotlin
+      gradle-task: ${{ matrix.system.gradle_task || 'assembleDebug' }}
+      enable-docker-build: ${{ matrix.system.enable_docker_build == true }}
+      docker-image-name: ${{ matrix.system.docker_image || '' }}
+      dockerfile-path: ${{ matrix.system.dockerfile_path || 'Dockerfile' }}
+      upload-artifact: true
+
+  mobile-react-native:
+    name: "Mobile React Native — ${{ matrix.system.name }}"
+    needs: [classify-systems]
+    if: fromJson(needs.classify-systems.outputs.react_native_count) > 0
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.classify-systems.outputs.react_native_systems_json) }}
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    uses: ./.github/workflows/mobile-react-native.yml
+    with:
+      system-dir: ${{ matrix.system.dir }}
+      system-name: ${{ matrix.system.name }}
+      node-version: ${{ matrix.system.node_version || 24 }}
+      java-version: ${{ matrix.system.java_version || '17' }}
+      coverage-threshold: ${{ matrix.system.coverage_threshold || 80 }}
+      enable-lint: ${{ (inputs.enable_lint != false && inputs.enable_lint != 'false') && (matrix.system.enable_lint == null || matrix.system.enable_lint == '' || matrix.system.enable_lint == true || matrix.system.enable_lint == 'true') }}
+      enable-security-scan: ${{ (inputs.enable_security_scan != false && inputs.enable_security_scan != 'false') && (matrix.system.enable_security_scan == null || matrix.system.enable_security_scan == '' || matrix.system.enable_security_scan == true || matrix.system.enable_security_scan == 'true') }}
+      enable-governance: ${{ (inputs.enable_governance != false && inputs.enable_governance != 'false') && (matrix.system.enable_governance == null || matrix.system.enable_governance == '' || matrix.system.enable_governance == true || matrix.system.enable_governance == 'true') }}
+      enable-android-build: ${{ matrix.system.enable_android_build == null || matrix.system.enable_android_build == '' || matrix.system.enable_android_build == true || matrix.system.enable_android_build == 'true' }}
+      enable-ios-build: ${{ matrix.system.enable_ios_build == null || matrix.system.enable_ios_build == '' || matrix.system.enable_ios_build == true || matrix.system.enable_ios_build == 'true' }}
+      enable-maestro: ${{ (inputs.enable_maestro != false && inputs.enable_maestro != 'false') && (matrix.system.enable_maestro == null || matrix.system.enable_maestro == '' || matrix.system.enable_maestro == true || matrix.system.enable_maestro == 'true') }}
+      maestro-test-command: ${{ matrix.system.maestro_test_command || 'maestro test .maestro' }}
+      enable-maestro-ios: ${{ (inputs.enable_maestro_ios != false && inputs.enable_maestro_ios != 'false') && (matrix.system.enable_maestro_ios == null || matrix.system.enable_maestro_ios == '' || matrix.system.enable_maestro_ios == true || matrix.system.enable_maestro_ios == 'true') }}
+      maestro-ios-test-command: ${{ matrix.system.maestro_ios_test_command || 'maestro test .maestro' }}
+      ios-runner: ${{ matrix.system.ios_runner || 'macos-15' }}
+      ios-xcode-version: ${{ matrix.system.ios_xcode_version || '16.4' }}
+      ios-xcode-fallbacks: ${{ matrix.system.ios_xcode_fallbacks || '16.3,16.2,26.2' }}
+
+  mobile-react-native-release:
+    name: "Mobile React Native Release Build — ${{ matrix.system.name }}"
+    needs: [classify-systems, mobile-react-native]
+    if: >-
+      always() &&
+      needs.classify-systems.result == 'success' &&
+      fromJson(needs.classify-systems.outputs.react_native_count || '0') > 0 &&
+      (needs.mobile-react-native.result == 'success' || needs.mobile-react-native.result == 'skipped') &&
+      (github.ref == 'refs/heads/test' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/main') &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.run_deploy == true) &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.dry_run != true)
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.classify-systems.outputs.react_native_systems_json) }}
+    uses: ./.github/workflows/mobile-release-build.yml
+    with:
+      system-dir: ${{ matrix.system.dir }}
+      system-name: ${{ matrix.system.name }}
+      node-version: ${{ matrix.system.node_version || 24 }}
+      java-version: ${{ matrix.system.java_version || '17' }}
+      enable-android-release-build: true
+      enable-ios-release-build: ${{ matrix.system.enable_ios_release_build == null || matrix.system.enable_ios_release_build == '' || matrix.system.enable_ios_release_build == true || matrix.system.enable_ios_release_build == 'true' }}
+      android-release-gradle-task: assembleRelease bundleRelease
+      ios-release-export-enabled: ${{ matrix.system.ios_release_export_enabled == true }}
+      ios-runner: ${{ matrix.system.ios_runner || 'macos-15' }}
+      ios-xcode-version: ${{ matrix.system.ios_xcode_version || '16.4' }}
+      ios-xcode-fallbacks: ${{ matrix.system.ios_xcode_fallbacks || '16.3,16.2,26.2' }}
+    secrets: inherit
+
+  sonarcloud-mobile:
+    name: "SonarCloud — Mobile Monorepo Analysis"
+    needs: [active-systems, classify-systems, mobile-expo, mobile-kotlin, mobile-react-native]
+    if: >-
+      always() &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      inputs.enable_sonar != false &&
+      vars.ENABLE_SONAR_CI != 'false' &&
+      (needs.mobile-expo.result == 'success' || needs.mobile-expo.result == 'skipped') &&
+      (needs.mobile-kotlin.result == 'success' || needs.mobile-kotlin.result == 'skipped') &&
+      (needs.mobile-react-native.result == 'success' || needs.mobile-react-native.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate SonarCloud project access
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+        run: |
+          if [ -z "${SONAR_TOKEN}" ] || [ -z "${SONAR_ORGANIZATION}" ] || [ -z "${SONAR_PROJECT_KEY}" ]; then
+            echo "❌ SonarCloud preflight failed: one or more required secrets are empty."
+            exit 1
+          fi
+
+          RESPONSE=$(curl -sS -w "\n%{http_code}" -u "${SONAR_TOKEN}:" "https://sonarcloud.io/api/projects/search?organization=${SONAR_ORGANIZATION}&projects=${SONAR_PROJECT_KEY}")
+          HTTP_CODE=$(echo "${RESPONSE}" | tail -n 1)
+          BODY=$(echo "${RESPONSE}" | sed '$d')
+          TOTAL=$(echo "${BODY}" | jq -r '.paging.total // 0')
+
+          echo "🔎 Sonar preflight: org='${SONAR_ORGANIZATION}', project='${SONAR_PROJECT_KEY}', http=${HTTP_CODE}, total=${TOTAL}"
+
+          if [ "${HTTP_CODE}" -ne 200 ] || [ "${TOTAL}" -lt 1 ]; then
+            echo "❌ SonarCloud preflight failed: project not found or token has no access."
+            echo "Check SONAR_ORGANIZATION, SONAR_PROJECT_KEY, and SONAR_TOKEN permissions for this repository."
+            exit 1
+          fi
+
+          echo "✅ SonarCloud preflight passed."
+
+      - name: Download coverage artifacts
+        if: ${{ fromJson(needs.classify-systems.outputs.expo_count || '0') > 0 || fromJson(needs.classify-systems.outputs.react_native_count || '0') > 0 }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: "*-coverage"
+          path: coverage-artifacts
+        continue-on-error: true
+
+      - name: List discovered LCOV files
+        if: ${{ fromJson(needs.classify-systems.outputs.expo_count || '0') > 0 || fromJson(needs.classify-systems.outputs.react_native_count || '0') > 0 }}
+        run: |
+          echo "🔎 Searching for lcov.info files before Sonar scan..."
+          find . -type f -name "lcov.info" | sed 's#^./##' || true
+
+      - name: Run SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          args: >
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            -Dsonar.exclusions=**/node_modules/**,**/coverage/**,**/coverage-artifacts/**,**/dist/**,**/build/**,**/.expo/**,**/.next/**,**/tests/**,**/.github/**
+            -Dsonar.coverage.exclusions=**/tests/**,**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,**/scripts/**,**/app.config.ts
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info,**/coverage/lcov.info,coverage-artifacts/**/lcov.info
+            -Dsonar.qualitygate.wait=${{ github.event_name == 'pull_request' && github.head_ref != 'test' && github.head_ref != 'uat' && github.head_ref != 'main' && 'true' || 'false' }}
+
+  k6-systems:
+    name: "Detect k6-Enabled Mobile Systems"
+    needs: [qa-controls, active-systems]
+    if: >-
+      always() &&
+      fromJson(needs.active-systems.outputs.active_count) > 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      k6_systems_json: ${{ steps.select.outputs.k6_systems_json }}
+      k6_count: ${{ steps.select.outputs.k6_count }}
+      k6_label: ${{ steps.select.outputs.k6_label }}
+    steps:
+      - name: Select k6-enabled systems
+        id: select
+        env:
+          ENABLE_GRAFANA_K6: ${{ needs.qa-controls.outputs.enable_grafana_k6 }}
+          ACTIVE_SYSTEMS_JSON: ${{ needs.active-systems.outputs.active_systems_json }}
+        run: |
+          if [ "${ENABLE_GRAFANA_K6}" != "true" ]; then
+            K6_SYSTEMS='[]'
+          else
+            K6_SYSTEMS=$(echo "${ACTIVE_SYSTEMS_JSON}" | jq -c 'map(
+              select(
+                (.enable_grafana_k6 // true) != false and
+                (.enable_k6 // true) != false and
+                (((.mobile_stack // .stack // .framework // "") | ascii_downcase | gsub("[ _]"; "-")) as $stack | ($stack != "kotlin" and $stack != "android-kotlin" and $stack != "native-kotlin"))
+              )
+            )')
+          fi
+
+          K6_COUNT=$(echo "${K6_SYSTEMS}" | jq 'length')
+          if [ "${K6_COUNT}" -gt 0 ]; then
+            K6_LABEL=$(echo "${K6_SYSTEMS}" | jq -r 'map(.name) | join(", ")')
+          else
+            K6_LABEL="None"
+          fi
+
+          echo "k6_systems_json=${K6_SYSTEMS}" >> "$GITHUB_OUTPUT"
+          echo "k6_count=${K6_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "k6_label=${K6_LABEL}" >> "$GITHUB_OUTPUT"
+
+  mobile-grafana-k6:
+    name: "Mobile Grafana k6 — ${{ matrix.system.name }}"
+    needs: [qa-controls, k6-systems, classify-systems, mobile-expo, mobile-kotlin, mobile-react-native]
+    if: >-
+      always() &&
+      needs.qa-controls.outputs.enable_grafana_k6 == 'true' &&
+      fromJson(needs.k6-systems.outputs.k6_count) > 0 &&
+      (needs.mobile-expo.result == 'success' || needs.mobile-expo.result == 'skipped') &&
+      (needs.mobile-kotlin.result == 'success' || needs.mobile-kotlin.result == 'skipped') &&
+      (needs.mobile-react-native.result == 'success' || needs.mobile-react-native.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.k6-systems.outputs.k6_systems_json) }}
+    uses: ./.github/workflows/grafana-k6.yml
+    with:
+      system-name: ${{ matrix.system.name }}
+      working-directory: ${{ matrix.system.dir || '.' }}
+      script-path: ${{ matrix.system.k6_script_path || needs.qa-controls.outputs.k6_script_path }}
+      target-base-url: ${{ matrix.system.k6_base_url || needs.qa-controls.outputs.k6_base_url }}
+      run-only-on-branch: ${{ matrix.system.k6_run_only_on_branch || needs.qa-controls.outputs.k6_run_only_on_branch }}
+      upload-artifacts: true
+    secrets:
+      K6_CLOUD_TOKEN: ${{ secrets.K6_CLOUD_TOKEN }}
+      K6_CLOUD_PROJECT_ID: ${{ secrets.K6_CLOUD_PROJECT_ID }}
+
+  version-test:
+    name: "Version Tag — TEST (${{ matrix.system.name }})"
+    needs: [mobile-expo, mobile-kotlin, mobile-react-native, active-systems, classify-systems, sonarcloud-mobile]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/test' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.dry_run != true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.mobile-expo.result == 'success' || needs.mobile-expo.result == 'skipped') &&
+      (needs.mobile-kotlin.result == 'success' || needs.mobile-kotlin.result == 'skipped') &&
+      (needs.mobile-react-native.result == 'success' || needs.mobile-react-native.result == 'skipped') &&
+      (needs.sonarcloud-mobile.result == 'success' || needs.sonarcloud-mobile.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: test
+      stream: ${{ matrix.system.version_stream }}
+
+  version-uat:
+    name: "Version Tag — UAT (${{ matrix.system.name }})"
+    needs: [mobile-expo, mobile-kotlin, mobile-react-native, active-systems, classify-systems, sonarcloud-mobile]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/uat' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.dry_run != true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.mobile-expo.result == 'success' || needs.mobile-expo.result == 'skipped') &&
+      (needs.mobile-kotlin.result == 'success' || needs.mobile-kotlin.result == 'skipped') &&
+      (needs.mobile-react-native.result == 'success' || needs.mobile-react-native.result == 'skipped') &&
+      (needs.sonarcloud-mobile.result == 'success' || needs.sonarcloud-mobile.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: uat
+      stream: ${{ matrix.system.version_stream }}
+
+  version-main-release:
+    name: "Version Tag — MAIN Release (${{ matrix.system.name }})"
+    needs: [mobile-expo, mobile-kotlin, mobile-react-native, active-systems, classify-systems, sonarcloud-mobile]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.dry_run != true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.mobile-expo.result == 'success' || needs.mobile-expo.result == 'skipped') &&
+      (needs.mobile-kotlin.result == 'success' || needs.mobile-kotlin.result == 'skipped') &&
+      (needs.mobile-react-native.result == 'success' || needs.mobile-react-native.result == 'skipped') &&
+      (needs.sonarcloud-mobile.result == 'success' || needs.sonarcloud-mobile.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: release
+      stream: ${{ matrix.system.version_stream }}
+
+  publish-mobile-release:
+    name: "Publish Mobile Release — ${{ matrix.system.name }}"
+    needs: [active-systems, qa-controls, k6-systems, mobile-expo, mobile-expo-release, mobile-kotlin, mobile-react-native, mobile-react-native-release, mobile-grafana-k6, sonarcloud-mobile, version-test, version-uat, version-main-release]
+    if: >-
+      always() &&
+      github.repository != 'ImplementSprint/central-workflow' &&
+      (github.ref == 'refs/heads/test' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/main') &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.run_deploy == true) &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.dry_run != true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.mobile-expo.result == 'success' || needs.mobile-expo.result == 'skipped') &&
+      (needs.mobile-expo-release.result == 'success' || needs.mobile-expo-release.result == 'skipped') &&
+      (needs.mobile-kotlin.result == 'success' || needs.mobile-kotlin.result == 'skipped') &&
+      (needs.mobile-react-native.result == 'success' || needs.mobile-react-native.result == 'skipped') &&
+      (needs.mobile-react-native-release.result == 'success' || needs.mobile-react-native-release.result == 'skipped') &&
+      (needs.sonarcloud-mobile.result == 'success' || needs.sonarcloud-mobile.result == 'skipped') &&
+      (github.ref != 'refs/heads/test' || needs.version-test.result == 'success') &&
+      (github.ref != 'refs/heads/uat' || needs.version-uat.result == 'success') &&
+      (github.ref != 'refs/heads/main' || needs.version-main-release.result == 'success') &&
+      (needs.qa-controls.outputs.enable_grafana_k6 != 'true' || fromJson(needs.k6-systems.outputs.k6_count) == 0 || needs.mobile-grafana-k6.result == 'success' || needs.mobile-grafana-k6.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        system: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/mobile-release-publish.yml
+    with:
+      system-name: ${{ matrix.system.name }}
+      version-stream: ${{ matrix.system.version_stream || 'global' }}
+      release-mode: ${{ github.ref_name == 'test' && 'test' || (github.ref_name == 'uat' && 'uat' || 'main') }}
+
+  prepare-promotion-payload:
+    name: "Prepare Promotion Payload"
+    needs: [active-systems, classify-systems, qa-controls, k6-systems, aggregate-mobile-status, mobile-expo, mobile-kotlin, mobile-react-native, mobile-grafana-k6, sonarcloud-mobile, version-test, version-uat, publish-mobile-release]
+    if: >-
+      always() &&
+      (github.ref == 'refs/heads/test' || github.ref == 'refs/heads/uat') &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      needs.aggregate-mobile-status.outputs.overall_result == 'success' &&
+      needs.publish-mobile-release.result == 'success' &&
+      ((github.ref == 'refs/heads/test' && needs.version-test.result == 'success') || (github.ref == 'refs/heads/uat' && needs.version-uat.result == 'success'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      release_urls_json: ${{ steps.build.outputs.release_urls_json }}
+      results_json: ${{ steps.build.outputs.results_json }}
+      versions_json: ${{ steps.build.outputs.versions_json }}
+      quality_gates_json: ${{ steps.build.outputs.quality_gates_json }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build payload JSON
+        id: build
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+          SYSTEMS_JSON: ${{ needs.active-systems.outputs.active_systems_json }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OVERALL_RESULT: ${{ needs.aggregate-mobile-status.outputs.overall_result }}
+          EXPO_COUNT_RAW: ${{ needs.classify-systems.outputs.expo_count }}
+          KOTLIN_COUNT_RAW: ${{ needs.classify-systems.outputs.kotlin_count }}
+          REACT_NATIVE_COUNT_RAW: ${{ needs.classify-systems.outputs.react_native_count }}
+          K6_COUNT_RAW: ${{ needs.k6-systems.outputs.k6_count }}
+          EXPO_RESULT: ${{ needs.mobile-expo.result }}
+          KOTLIN_RESULT: ${{ needs.mobile-kotlin.result }}
+          REACT_NATIVE_RESULT: ${{ needs.mobile-react-native.result }}
+          SONAR_RESULT: ${{ needs.sonarcloud-mobile.result }}
+          K6_RESULT: ${{ needs.mobile-grafana-k6.result }}
+          ENABLE_SONAR_INPUT: ${{ inputs.enable_sonar }}
+          ENABLE_GRAFANA_K6: ${{ needs.qa-controls.outputs.enable_grafana_k6 }}
+          VERSION_TEST_RESULT: ${{ needs.version-test.result }}
+          VERSION_UAT_RESULT: ${{ needs.version-uat.result }}
+          PUBLISH_RELEASE_RESULT: ${{ needs.publish-mobile-release.result }}
+        run: |
+          resolve_prefix() {
+            local mode="$1"
+            local stream="$2"
+            local stream_key=""
+
+            stream_key=$(echo "${stream}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+            if [ -z "${stream_key}" ]; then
+              stream_key="global"
+            fi
+
+            if [ "${stream_key}" = "global" ]; then
+              case "${mode}" in
+                test) echo "test-v" ;;
+                uat) echo "uat-v" ;;
+                main) echo "main-v" ;;
+              esac
+            else
+              echo "${mode}-${stream_key}-v"
+            fi
+          }
+
+          normalize_gate() {
+            local enabled="$1"
+            local count="$2"
+            local result="$3"
+
+            if [ "${enabled}" = "false" ]; then
+              echo "skipped"
+              return
+            fi
+
+            if [ -z "${count}" ] || [ "${count}" = "0" ]; then
+              echo "skipped"
+              return
+            fi
+
+            if [ -z "${result}" ]; then
+              echo "skipped"
+              return
+            fi
+
+            echo "${result}"
+          }
+
+          MODE="${BRANCH_NAME}"
+          if [ "${MODE}" != "test" ] && [ "${MODE}" != "uat" ]; then
+            echo "❌ Unsupported promotion payload branch: ${MODE}"
+            exit 1
+          fi
+
+          if [ "${MODE}" = "test" ]; then
+            VERSION_GATE_RESULT="${VERSION_TEST_RESULT}"
+          else
+            VERSION_GATE_RESULT="${VERSION_UAT_RESULT}"
+          fi
+
+          VERSIONS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c 'reduce .[] as $s ({}; .[$s.name] = "N/A")')
+          RELEASE_URLS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c --arg runUrl "${RUN_URL}" 'reduce .[] as $s ({}; .[$s.name] = $runUrl)')
+
+          while IFS=$'\t' read -r NAME STREAM; do
+            if [ -z "${NAME}" ]; then
+              continue
+            fi
+
+            PREFIX=$(resolve_prefix "${MODE}" "${STREAM}")
+            TAG=$(git tag -l "${PREFIX}*" | grep -E "^${PREFIX}[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
+            if [ -z "${TAG}" ]; then
+              echo "❌ Missing required ${PREFIX}<version> tag for system '${NAME}'."
+              exit 1
+            fi
+
+            RELEASE_URL="${RUN_URL}"
+            if [ "${PUBLISH_RELEASE_RESULT}" = "success" ]; then
+              RELEASE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+            fi
+
+            VERSIONS_JSON=$(echo "${VERSIONS_JSON}" | jq -c --arg name "${NAME}" --arg tag "${TAG}" '. + {($name):$tag}')
+            RELEASE_URLS_JSON=$(echo "${RELEASE_URLS_JSON}" | jq -c --arg name "${NAME}" --arg url "${RELEASE_URL}" '. + {($name):$url}')
+          done < <(echo "${SYSTEMS_JSON}" | jq -r '.[] | "\(.name)\t\(.version_stream // "global")"')
+
+          RESULTS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c --arg result "${OVERALL_RESULT}" 'reduce .[] as $s ({}; .[$s.name] = $result)')
+
+          EXPO_GATE=$(normalize_gate true "${EXPO_COUNT_RAW:-0}" "${EXPO_RESULT}")
+          KOTLIN_GATE=$(normalize_gate true "${KOTLIN_COUNT_RAW:-0}" "${KOTLIN_RESULT}")
+          REACT_NATIVE_GATE=$(normalize_gate true "${REACT_NATIVE_COUNT_RAW:-0}" "${REACT_NATIVE_RESULT}")
+          SONAR_ENABLED="${ENABLE_SONAR_INPUT}"
+          if [ -z "${SONAR_ENABLED}" ]; then
+            SONAR_ENABLED="true"
+          fi
+          SONAR_GATE=$(normalize_gate "${SONAR_ENABLED}" 1 "${SONAR_RESULT}")
+          K6_GATE=$(normalize_gate "${ENABLE_GRAFANA_K6}" "${K6_COUNT_RAW:-0}" "${K6_RESULT}")
+
+          QUALITY_GATES_JSON=$(jq -nc \
+            --arg expo "${EXPO_GATE}" \
+            --arg kotlin "${KOTLIN_GATE}" \
+            --arg reactNative "${REACT_NATIVE_GATE}" \
+            --arg sonar "${SONAR_GATE}" \
+            --arg grafana "${K6_GATE}" \
+            --arg version "${VERSION_GATE_RESULT}" \
+            --arg release "${PUBLISH_RELEASE_RESULT}" \
+            '{
+              "Mobile Expo": $expo,
+              "Mobile Kotlin": $kotlin,
+              "Mobile React Native": $reactNative,
+              "SonarCloud": $sonar,
+              "Grafana k6": $grafana,
+              "Version Tagging": $version,
+              "Release Publish": $release
+            }')
+
+          echo "release_urls_json=${RELEASE_URLS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "results_json=${RESULTS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "versions_json=${VERSIONS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "quality_gates_json=${QUALITY_GATES_JSON}" >> "$GITHUB_OUTPUT"
+
+  create-pr-to-uat:
+    name: "Create PR → UAT"
+    needs: [systems-config, active-systems, aggregate-mobile-status, version-test, publish-mobile-release, prepare-promotion-payload]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/test' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.run_promotion == true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      needs.aggregate-mobile-status.outputs.overall_result == 'success' &&
+      needs.version-test.result == 'success' &&
+      needs.publish-mobile-release.result == 'success' &&
+      needs.prepare-promotion-payload.result == 'success'
+    uses: ./.github/workflows/promotion.yml
+    with:
+      pipeline-kind: ${{ needs.systems-config.outputs.pipeline_mode != '' && needs.systems-config.outputs.pipeline_mode || 'multi' }}
+      direction: test-to-uat
+      systems-json: ${{ needs.active-systems.outputs.active_systems_json }}
+      artifact-kind: release
+      artifact-links-json: ${{ needs.prepare-promotion-payload.outputs.release_urls_json }}
+      results-json: ${{ needs.prepare-promotion-payload.outputs.results_json }}
+      versions-json: ${{ needs.prepare-promotion-payload.outputs.versions_json }}
+      quality-gates-json: ${{ needs.prepare-promotion-payload.outputs.quality_gates_json }}
+      system1-result: ${{ needs.aggregate-mobile-status.outputs.overall_result }}
+      pipeline-result: ${{ needs.aggregate-mobile-status.outputs.overall_result }}
+      dry-run: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.dry_run == true }}
+    secrets:
+      PR_TOKEN: ${{ secrets.GH_PR_TOKEN != '' && secrets.GH_PR_TOKEN || github.token }}
+
+  create-pr-to-main:
+    name: "Create PR → Main"
+    needs: [systems-config, active-systems, aggregate-mobile-status, version-uat, publish-mobile-release, prepare-promotion-payload]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/uat' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.run_promotion == true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      needs.aggregate-mobile-status.outputs.overall_result == 'success' &&
+      needs.version-uat.result == 'success' &&
+      needs.publish-mobile-release.result == 'success' &&
+      needs.prepare-promotion-payload.result == 'success'
+    uses: ./.github/workflows/promotion.yml
+    with:
+      pipeline-kind: ${{ needs.systems-config.outputs.pipeline_mode != '' && needs.systems-config.outputs.pipeline_mode || 'multi' }}
+      direction: uat-to-main
+      systems-json: ${{ needs.active-systems.outputs.active_systems_json }}
+      artifact-kind: release
+      artifact-links-json: ${{ needs.prepare-promotion-payload.outputs.release_urls_json }}
+      results-json: ${{ needs.prepare-promotion-payload.outputs.results_json }}
+      versions-json: ${{ needs.prepare-promotion-payload.outputs.versions_json }}
+      quality-gates-json: ${{ needs.prepare-promotion-payload.outputs.quality_gates_json }}
+      system1-result: ${{ needs.aggregate-mobile-status.outputs.overall_result }}
+      pipeline-result: ${{ needs.aggregate-mobile-status.outputs.overall_result }}
+      dry-run: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.dry_run == true }}
+    secrets:
+      PR_TOKEN: ${{ secrets.GH_PR_TOKEN != '' && secrets.GH_PR_TOKEN || github.token }}
+
+  aggregate-mobile-status:
+    name: "Aggregate Mobile Status"
+    needs: [qa-controls, active-systems, classify-systems, mobile-expo, mobile-kotlin, mobile-react-native, k6-systems, mobile-grafana-k6, sonarcloud-mobile]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      overall_result: ${{ steps.aggregate.outputs.overall_result }}
+      error_details: ${{ steps.aggregate.outputs.error_details }}
+    steps:
+      - name: Compute overall status
+        id: aggregate
+        env:
+          ENABLE_GRAFANA_K6: ${{ needs.qa-controls.outputs.enable_grafana_k6 }}
+          ENABLE_SONAR_INPUT: ${{ inputs.enable_sonar }}
+          ACTIVE_COUNT_RAW: ${{ needs.active-systems.outputs.active_count }}
+          EXPO_COUNT_RAW: ${{ needs.classify-systems.outputs.expo_count }}
+          KOTLIN_COUNT_RAW: ${{ needs.classify-systems.outputs.kotlin_count }}
+          REACT_NATIVE_COUNT_RAW: ${{ needs.classify-systems.outputs.react_native_count }}
+          K6_COUNT_RAW: ${{ needs.k6-systems.outputs.k6_count }}
+          EXPO_RESULT: ${{ needs.mobile-expo.result }}
+          KOTLIN_RESULT: ${{ needs.mobile-kotlin.result }}
+          REACT_NATIVE_RESULT: ${{ needs.mobile-react-native.result }}
+          K6_RESULT: ${{ needs.mobile-grafana-k6.result }}
+          SONAR_RESULT: ${{ needs.sonarcloud-mobile.result }}
+        run: |
+          ACTIVE_COUNT="${ACTIVE_COUNT_RAW:-0}"
+          EXPO_COUNT="${EXPO_COUNT_RAW:-0}"
+          KOTLIN_COUNT="${KOTLIN_COUNT_RAW:-0}"
+          REACT_NATIVE_COUNT="${REACT_NATIVE_COUNT_RAW:-0}"
+          K6_COUNT="${K6_COUNT_RAW:-0}"
+          ENABLE_SONAR="${ENABLE_SONAR_INPUT}"
+
+          if [ -z "${ENABLE_SONAR}" ]; then
+            ENABLE_SONAR="true"
+          fi
+
+          if [ "${ENABLE_SONAR}" != "true" ] && [ "${ENABLE_SONAR}" != "false" ]; then
+            ENABLE_SONAR="true"
+          fi
+
+          if ! [[ "${ACTIVE_COUNT}" =~ ^[0-9]+$ ]]; then ACTIVE_COUNT=0; fi
+          if ! [[ "${EXPO_COUNT}" =~ ^[0-9]+$ ]]; then EXPO_COUNT=0; fi
+          if ! [[ "${KOTLIN_COUNT}" =~ ^[0-9]+$ ]]; then KOTLIN_COUNT=0; fi
+          if ! [[ "${REACT_NATIVE_COUNT}" =~ ^[0-9]+$ ]]; then REACT_NATIVE_COUNT=0; fi
+          if ! [[ "${K6_COUNT}" =~ ^[0-9]+$ ]]; then K6_COUNT=0; fi
+
+          OVERALL="success"
+          DETAILS=""
+
+          if [ "${ACTIVE_COUNT}" -eq 0 ]; then
+            OVERALL="skipped"
+            DETAILS="No active mobile systems detected."
+          else
+            FAILED=false
+            CANCELLED=false
+
+            if [ "${EXPO_COUNT}" -gt 0 ]; then
+              case "${EXPO_RESULT}" in
+                success|skipped) ;;
+                cancelled) CANCELLED=true ;;
+                *) FAILED=true ;;
+              esac
+            fi
+
+            if [ "${KOTLIN_COUNT}" -gt 0 ]; then
+              case "${KOTLIN_RESULT}" in
+                success|skipped) ;;
+                cancelled) CANCELLED=true ;;
+                *) FAILED=true ;;
+              esac
+            fi
+
+            if [ "${REACT_NATIVE_COUNT}" -gt 0 ]; then
+              case "${REACT_NATIVE_RESULT}" in
+                success|skipped) ;;
+                cancelled) CANCELLED=true ;;
+                *) FAILED=true ;;
+              esac
+            fi
+
+            if [ "${ENABLE_GRAFANA_K6}" = "true" ] && [ "${K6_COUNT}" -gt 0 ]; then
+              case "${K6_RESULT}" in
+                success|skipped) ;;
+                cancelled) CANCELLED=true ;;
+                *) FAILED=true ;;
+              esac
+            fi
+
+            if [ "${ENABLE_SONAR}" = "true" ]; then
+              case "${SONAR_RESULT}" in
+                success|skipped) ;;
+                cancelled) CANCELLED=true ;;
+                *) FAILED=true ;;
+              esac
+            fi
+
+            if [ "${EXPO_COUNT}" -eq 0 ] && [ "${KOTLIN_COUNT}" -eq 0 ] && [ "${REACT_NATIVE_COUNT}" -eq 0 ]; then
+              OVERALL="skipped"
+              DETAILS="No applicable mobile execution targets were detected."
+            elif [ "${FAILED}" = "true" ]; then
+              OVERALL="failure"
+              DETAILS="One or more applicable mobile execution paths failed."
+            elif [ "${CANCELLED}" = "true" ]; then
+              OVERALL="cancelled"
+              DETAILS="At least one applicable mobile execution path was cancelled."
+            fi
+          fi
+
+          echo "overall_result=${OVERALL}" >> "$GITHUB_OUTPUT"
+          echo "error_details=${DETAILS}" >> "$GITHUB_OUTPUT"
+
+  prepare-notify-payload:
+    name: "Prepare Notify Payload"
+    needs: [active-systems, classify-systems, qa-controls, k6-systems, aggregate-mobile-status, mobile-expo, mobile-kotlin, mobile-react-native, mobile-grafana-k6, sonarcloud-mobile, version-test, version-uat, version-main-release, publish-mobile-release]
+    if: >-
+      always() &&
+      (github.ref == 'refs/heads/test' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/main') &&
+      fromJson(needs.active-systems.outputs.active_count) > 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      release_urls_json: ${{ steps.build.outputs.release_urls_json }}
+      versions_json: ${{ steps.build.outputs.versions_json }}
+      quality_gates_json: ${{ steps.build.outputs.quality_gates_json }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build payload JSON
+        id: build
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+          SYSTEMS_JSON: ${{ needs.active-systems.outputs.active_systems_json }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EXPO_COUNT_RAW: ${{ needs.classify-systems.outputs.expo_count }}
+          KOTLIN_COUNT_RAW: ${{ needs.classify-systems.outputs.kotlin_count }}
+          REACT_NATIVE_COUNT_RAW: ${{ needs.classify-systems.outputs.react_native_count }}
+          K6_COUNT_RAW: ${{ needs.k6-systems.outputs.k6_count }}
+          EXPO_RESULT: ${{ needs.mobile-expo.result }}
+          KOTLIN_RESULT: ${{ needs.mobile-kotlin.result }}
+          REACT_NATIVE_RESULT: ${{ needs.mobile-react-native.result }}
+          SONAR_RESULT: ${{ needs.sonarcloud-mobile.result }}
+          K6_RESULT: ${{ needs.mobile-grafana-k6.result }}
+          ENABLE_SONAR_INPUT: ${{ inputs.enable_sonar }}
+          ENABLE_GRAFANA_K6: ${{ needs.qa-controls.outputs.enable_grafana_k6 }}
+          VERSION_TEST_RESULT: ${{ needs.version-test.result }}
+          VERSION_UAT_RESULT: ${{ needs.version-uat.result }}
+          VERSION_MAIN_RESULT: ${{ needs.version-main-release.result }}
+          PUBLISH_RELEASE_RESULT: ${{ needs.publish-mobile-release.result }}
+        run: |
+          resolve_prefix() {
+            local mode="$1"
+            local stream="$2"
+            local stream_key=""
+
+            stream_key=$(echo "${stream}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+            if [ -z "${stream_key}" ]; then
+              stream_key="global"
+            fi
+
+            if [ "${stream_key}" = "global" ]; then
+              case "${mode}" in
+                test) echo "test-v" ;;
+                uat) echo "uat-v" ;;
+                main) echo "main-v" ;;
+              esac
+            else
+              echo "${mode}-${stream_key}-v"
+            fi
+          }
+
+          normalize_gate() {
+            local enabled="$1"
+            local count="$2"
+            local result="$3"
+
+            if [ "${enabled}" = "false" ]; then
+              echo "skipped"
+              return
+            fi
+
+            if [ -z "${count}" ] || [ "${count}" = "0" ]; then
+              echo "skipped"
+              return
+            fi
+
+            if [ -z "${result}" ]; then
+              echo "skipped"
+              return
+            fi
+
+            echo "${result}"
+          }
+
+          MODE="${BRANCH_NAME}"
+          case "${MODE}" in
+            test)
+              VERSION_GATE_RESULT="${VERSION_TEST_RESULT}"
+              ;;
+            uat)
+              VERSION_GATE_RESULT="${VERSION_UAT_RESULT}"
+              ;;
+            main)
+              VERSION_GATE_RESULT="${VERSION_MAIN_RESULT}"
+              ;;
+            *)
+              echo "❌ Unsupported notify payload branch: ${MODE}"
+              exit 1
+              ;;
+          esac
+
+          VERSIONS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c 'reduce .[] as $s ({}; .[$s.name] = "N/A")')
+          RELEASE_URLS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c --arg runUrl "${RUN_URL}" 'reduce .[] as $s ({}; .[$s.name] = $runUrl)')
+
+          if [ "${VERSION_GATE_RESULT}" = "success" ] || [ "${VERSION_GATE_RESULT}" = "skipped" ]; then
+            while IFS=$'\t' read -r NAME STREAM; do
+              if [ -z "${NAME}" ]; then
+                continue
+              fi
+
+              PREFIX=$(resolve_prefix "${MODE}" "${STREAM}")
+              TAG=$(git tag -l "${PREFIX}*" | grep -E "^${PREFIX}[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
+              if [ -n "${TAG}" ]; then
+                RELEASE_URL="${RUN_URL}"
+                if [ "${PUBLISH_RELEASE_RESULT}" = "success" ]; then
+                  RELEASE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+                fi
+
+                VERSIONS_JSON=$(echo "${VERSIONS_JSON}" | jq -c --arg name "${NAME}" --arg tag "${TAG}" '. + {($name):$tag}')
+                RELEASE_URLS_JSON=$(echo "${RELEASE_URLS_JSON}" | jq -c --arg name "${NAME}" --arg url "${RELEASE_URL}" '. + {($name):$url}')
+              fi
+            done < <(echo "${SYSTEMS_JSON}" | jq -r '.[] | "\(.name)\t\(.version_stream // "global")"')
+          fi
+
+          EXPO_GATE=$(normalize_gate true "${EXPO_COUNT_RAW:-0}" "${EXPO_RESULT}")
+          KOTLIN_GATE=$(normalize_gate true "${KOTLIN_COUNT_RAW:-0}" "${KOTLIN_RESULT}")
+          REACT_NATIVE_GATE=$(normalize_gate true "${REACT_NATIVE_COUNT_RAW:-0}" "${REACT_NATIVE_RESULT}")
+          SONAR_ENABLED="${ENABLE_SONAR_INPUT}"
+          if [ -z "${SONAR_ENABLED}" ]; then
+            SONAR_ENABLED="true"
+          fi
+          SONAR_GATE=$(normalize_gate "${SONAR_ENABLED}" 1 "${SONAR_RESULT}")
+          K6_GATE=$(normalize_gate "${ENABLE_GRAFANA_K6}" "${K6_COUNT_RAW:-0}" "${K6_RESULT}")
+
+          QUALITY_GATES_JSON=$(jq -nc \
+            --arg expo "${EXPO_GATE}" \
+            --arg kotlin "${KOTLIN_GATE}" \
+            --arg reactNative "${REACT_NATIVE_GATE}" \
+            --arg sonar "${SONAR_GATE}" \
+            --arg grafana "${K6_GATE}" \
+            --arg version "${VERSION_GATE_RESULT}" \
+            --arg release "${PUBLISH_RELEASE_RESULT}" \
+            '{
+              "Mobile Expo": $expo,
+              "Mobile Kotlin": $kotlin,
+              "Mobile React Native": $reactNative,
+              "SonarCloud": $sonar,
+              "Grafana k6": $grafana,
+              "Version Tagging": $version,
+              "Release Publish": $release
+            }')
+
+          echo "release_urls_json=${RELEASE_URLS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "versions_json=${VERSIONS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "quality_gates_json=${QUALITY_GATES_JSON}" >> "$GITHUB_OUTPUT"
+
+  pipeline-summary:
+    name: "Pipeline Summary"
+    needs: [systems-config, active-systems, aggregate-mobile-status]
+    if: always()
+    uses: ./.github/workflows/pipeline-summary.yml
+    with:
+      pipeline-kind: ${{ needs.systems-config.outputs.pipeline_mode != '' && needs.systems-config.outputs.pipeline_mode || 'multi' }}
+      systems-json: ${{ needs.active-systems.outputs.active_systems_json }}
+      results-json: '{}'
+      overall-result: ${{ needs.aggregate-mobile-status.outputs.overall_result }}
+
+  auto-revert-on-failure:
+    name: "Auto Revert on Failure"
+    permissions:
+      contents: write
+    needs:
+      [
+        systems-config,
+        qa-controls,
+        active-systems,
+        classify-systems,
+        mobile-expo,
+        kotlin-governance,
+        mobile-kotlin,
+        mobile-react-native,
+        mobile-react-native-release,
+        k6-systems,
+        mobile-grafana-k6,
+        sonarcloud-mobile,
+        aggregate-mobile-status,
+        version-test,
+        version-uat,
+        version-main-release,
+        publish-mobile-release,
+        prepare-notify-payload,
+        pipeline-summary,
+      ]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.repository != 'ImplementSprint/central-workflow' &&
+      github.ref == 'refs/heads/main' &&
+      needs.version-main-release.result == 'failure' &&
+      !contains(github.event.head_commit.message, '[skip-revert]') &&
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      !contains(github.event.head_commit.message, '[ci skip]') &&
+      !startsWith(github.event.head_commit.message, 'Revert "')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Cooldown before auto-revert
+        run: sleep 45
+
+      - name: Create rollback commit
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+          VERSION_MAIN_RELEASE_RESULT: ${{ needs.version-main-release.result }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin "${BRANCH_NAME}" --depth=50
+          git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+
+          export GIT_EDITOR=:
+
+          if git revert --no-edit "${GITHUB_SHA}"; then
+            git commit --amend -m "$(git log -1 --pretty=%B) [skip ci] [skip-revert]"
+            echo "✅ Created revert commit from ${GITHUB_SHA}."
+          elif git revert -m 1 --no-edit "${GITHUB_SHA}"; then
+            git commit --amend -m "$(git log -1 --pretty=%B) [skip ci] [skip-revert]"
+            echo "✅ Created merge-revert commit from ${GITHUB_SHA}."
+          else
+            git revert --abort || true
+            SHORT_SHA="${GITHUB_SHA:0:7}"
+            FAILED_JOBS=""
+            [ "${VERSION_MAIN_RELEASE_RESULT}" = "failure" ] && FAILED_JOBS="${FAILED_JOBS},version-main-release"
+            FAILED_JOBS="${FAILED_JOBS#,}"
+            if [ -z "${FAILED_JOBS}" ]; then
+              FAILED_JOBS="unknown"
+            fi
+            RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            git commit --allow-empty -m "ci(auto-revert): manual rollback required for ${SHORT_SHA} [skip ci] [skip-revert]" -m "failed_jobs=${FAILED_JOBS}" -m "run_url=${RUN_URL}"
+            echo "⚠️ Automatic revert conflicted; created marker commit for manual rollback."
+          fi
+
+          git push origin "HEAD:${BRANCH_NAME}"
+
+  notify-pipeline:
+    name: "Notify Pipeline Status"
+    needs: [systems-config, pipeline-summary, active-systems, aggregate-mobile-status, auto-revert-on-failure, prepare-notify-payload]
+    if: always()
+    uses: ./.github/workflows/notifications.yml
+    with:
+      status: ${{ needs.aggregate-mobile-status.outputs.overall_result != '' && needs.aggregate-mobile-status.outputs.overall_result || (needs.aggregate-mobile-status.result == 'cancelled' && 'cancelled' || 'failure') }}
+      system-dir: ${{ needs.active-systems.outputs.active_label != '' && needs.active-systems.outputs.active_label || 'None' }}
+      pipeline-type: ${{ needs.systems-config.outputs.pipeline_mode == 'single' && 'Mobile Single Master' || 'Mobile Multi Master' }}
+      error-details: ${{ needs.aggregate-mobile-status.outputs.error_details }}
+      artifact-kind: release
+      release-url: ''
+      release-urls-json: ${{ needs.prepare-notify-payload.outputs.release_urls_json }}
+      success-image-url: ${{ vars.DISCORD_SUCCESS_IMAGE_URL != '' && vars.DISCORD_SUCCESS_IMAGE_URL || vars.JED_SUCCESS_IMAGE_URL }}
+      failure-image-url: ${{ vars.DISCORD_FAIL_IMAGE_URL != '' && vars.DISCORD_FAIL_IMAGE_URL || vars.JED_FAIL_IMAGE_URL }}
+      cancelled-image-url: ${{ vars.DISCORD_CANCELLED_IMAGE_URL != '' && vars.DISCORD_CANCELLED_IMAGE_URL || vars.JED_CANCELLED_IMAGE_URL }}
+      versions-json: ${{ needs.prepare-notify-payload.outputs.versions_json }}
+      quality-gates-json: ${{ needs.prepare-notify-payload.outputs.quality_gates_json }}
+      pipeline-result: ${{ needs.aggregate-mobile-status.outputs.overall_result }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}

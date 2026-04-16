@@ -1,0 +1,113 @@
+# ──────────────────────────────────────────────────────────────
+# Mobile Kotlin Pipeline Caller
+# Copy this file into the target repo at:
+#   .github/workflows/mobile-kotlin-caller.yml
+#
+# Kotlin-only mobile pipeline for Android/Kotlin projects.
+# This caller delegates to the central Kotlin master pipeline.
+# ──────────────────────────────────────────────────────────────
+name: "Master Pipeline - Mobile Kotlin"
+
+on:
+  push:
+    branches: [test, uat, main]
+  pull_request:
+    branches: [test, uat, main]
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      pipeline_mode:
+        description: "Pipeline mode (auto|single)"
+        type: choice
+        options: [auto, single]
+        default: auto
+      enable_lint:
+        description: "Run lint checks"
+        type: boolean
+        default: true
+      enable_security_scan:
+        description: "Run security scan"
+        type: boolean
+        default: true
+      enable_sonar:
+        description: "Run SonarCloud analysis"
+        type: boolean
+        default: true
+      enable_governance:
+        description: "Run Kotlin governance checks"
+        type: boolean
+        default: true
+      governance_task:
+        description: "Gradle governance task"
+        type: string
+        default: "check"
+      gradle_task:
+        description: "Gradle task for Kotlin build"
+        type: string
+        default: "assembleDebug"
+      java_version:
+        description: "JDK version"
+        type: string
+        default: "17"
+      release_gradle_task:
+        description: "Gradle task for release build"
+        type: string
+        default: "assembleRelease bundleRelease"
+      run_deploy:
+        description: "Run deploy jobs (main only)"
+        type: boolean
+        default: false
+      run_promotion:
+        description: "Run promotion PR jobs"
+        type: boolean
+        default: true
+      enable_instrumented_tests:
+        description: "Run emulator-backed Android instrumentation tests"
+        type: boolean
+        default: true
+      enable_maestro:
+        description: "Run Android Maestro E2E tests"
+        type: boolean
+        default: true
+      maestro_test_command:
+        description: "Maestro command (central workflow)"
+        type: string
+        default: "maestro test .maestro"
+      dry_run:
+        description: "Preview-only mode (skip release publish)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: write
+  security-events: write
+
+jobs:
+  call-orchestrator:
+    uses: ImplementSprint/central-workflow/.github/workflows/master-pipeline-kotlin.yml@main
+    with:
+      pipeline_mode: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pipeline_mode || 'auto' }}
+      working-directory: .
+      system-name: mobile-kotlin
+      version-stream: mobile-kotlin
+      java-version: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.java_version || '17' }}
+      governance-task: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.governance_task || 'check' }}
+      gradle-task: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.gradle_task || 'assembleDebug' }}
+      release-gradle-task: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_gradle_task || 'assembleRelease bundleRelease' }}
+      enable_lint: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.enable_lint || 'true') || true }}
+      enable_security_scan: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.enable_security_scan || 'true') || true }}
+      enable_sonar: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.enable_sonar || 'true') || true }}
+      enable_governance: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.enable_governance || 'true') || true }}
+      enable_instrumented_tests: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.enable_instrumented_tests || 'true') || true }}
+      enable_maestro: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.enable_maestro || 'true') || true }}
+      maestro-test-command: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.maestro_test_command || 'maestro test .maestro' }}
+      run_deploy: ${{ github.ref_name == 'main' && (github.event_name != 'workflow_dispatch' || fromJSON(github.event.inputs.run_deploy || 'false')) }}
+      run_promotion: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.run_promotion || 'true') || github.event_name == 'push' }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.dry_run || 'false') || false }}
+    secrets: inherit

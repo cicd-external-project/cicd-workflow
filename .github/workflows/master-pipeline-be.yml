@@ -1,0 +1,731 @@
+name: "Master Pipeline — Backend"
+
+on:
+  workflow_call:
+    inputs:
+      pipeline_mode:
+        type: string
+        default: auto
+      enable_security_scan:
+        type: boolean
+        default: true
+      enable_sonar:
+        type: boolean
+        default: true
+      enable_k6:
+        type: boolean
+        default: true
+      k6_script_path:
+        type: string
+        default: "tests/performance"
+      k6_base_url:
+        type: string
+        default: ""
+      k6_run_only_on_branch:
+        type: string
+        default: "test,main"
+      run_deploy:
+        type: boolean
+        default: true
+      run_promotion:
+        type: boolean
+        default: true
+      dry_run:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: backend-master-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  systems-config:
+    name: "Resolve Backend Systems Configuration"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      systems_json: ${{ steps.skip-check.outputs.skip == 'true' && '[]' || steps.resolve.outputs.systems_json }}
+      systems_label: ${{ steps.skip-check.outputs.skip == 'true' && 'Skipped (promotion PR sync)' || steps.resolve.outputs.systems_label }}
+      pipeline_mode: ${{ steps.skip-check.outputs.skip == 'true' && 'skip' || steps.resolve.outputs.pipeline_mode }}
+    steps:
+      - name: Skip promotion-branch PR sync
+        id: skip-check
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            HEAD_BRANCH="${{ github.head_ref }}"
+            if [ "${HEAD_BRANCH}" = "test" ] || [ "${HEAD_BRANCH}" = "uat" ] || [ "${HEAD_BRANCH}" = "main" ]; then
+              echo "⏭️ Skipping PR sync for promotion branch '${HEAD_BRANCH}'."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve systems JSON
+        if: steps.skip-check.outputs.skip != 'true'
+        id: resolve
+        env:
+          BACKEND_SINGLE_SYSTEMS_JSON_VAR: ${{ vars.BACKEND_SINGLE_SYSTEMS_JSON }}
+          BACKEND_MULTI_SYSTEMS_JSON_VAR: ${{ vars.BACKEND_MULTI_SYSTEMS_JSON }}
+          REQUESTED_PIPELINE_MODE: ${{ inputs.pipeline_mode }}
+        run: |
+          MODE_INPUT="${REQUESTED_PIPELINE_MODE}"
+          if [ -z "${MODE_INPUT}" ]; then
+            MODE_INPUT="auto"
+          fi
+
+          SYSTEMS_JSON_VAR=""
+          PIPELINE_MODE=""
+
+          if [ "${MODE_INPUT}" = "single" ]; then
+            if [ -n "${BACKEND_SINGLE_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${BACKEND_SINGLE_SYSTEMS_JSON_VAR}"
+            elif [ -n "${BACKEND_MULTI_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${BACKEND_MULTI_SYSTEMS_JSON_VAR}"
+            fi
+            PIPELINE_MODE="single"
+          elif [ "${MODE_INPUT}" = "multi" ]; then
+            if [ -n "${BACKEND_MULTI_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${BACKEND_MULTI_SYSTEMS_JSON_VAR}"
+            elif [ -n "${BACKEND_SINGLE_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${BACKEND_SINGLE_SYSTEMS_JSON_VAR}"
+            fi
+            PIPELINE_MODE="multi"
+          else
+            if [ -n "${BACKEND_MULTI_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${BACKEND_MULTI_SYSTEMS_JSON_VAR}"
+            elif [ -n "${BACKEND_SINGLE_SYSTEMS_JSON_VAR}" ]; then
+              SYSTEMS_JSON_VAR="${BACKEND_SINGLE_SYSTEMS_JSON_VAR}"
+            fi
+          fi
+
+          if [ -z "${SYSTEMS_JSON_VAR}" ]; then
+            echo "❌ Missing required repository variable BACKEND_MULTI_SYSTEMS_JSON or BACKEND_SINGLE_SYSTEMS_JSON."
+            exit 1
+          fi
+
+          SYSTEMS_JSON="${SYSTEMS_JSON_VAR}"
+
+          echo "${SYSTEMS_JSON}" | jq -e . >/dev/null
+
+          SYSTEMS_JSON_TYPE=$(echo "${SYSTEMS_JSON}" | jq -r 'type')
+          if [ "${SYSTEMS_JSON_TYPE}" = "object" ]; then
+            SYSTEMS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c '[.]')
+          elif [ "${SYSTEMS_JSON_TYPE}" = "array" ]; then
+            SYSTEMS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c .)
+          else
+            echo "❌ Backend systems JSON must be an object (single) or array (single/multi)."
+            exit 1
+          fi
+
+          echo "${SYSTEMS_JSON}" | jq -e 'length > 0' >/dev/null
+          echo "${SYSTEMS_JSON}" | jq -e 'all(.[]; (.name|type=="string" and length>0) and (.dir|type=="string" and length>0) and (.image|type=="string" and length>0))' >/dev/null
+
+          INVALID_BACKEND_STACKS=$(echo "${SYSTEMS_JSON}" | jq -r '
+            [ .[]
+              | {
+                  name: (.name // "unnamed-system"),
+                  stack: ((.backend_stack // .stack // .framework // "nestjs") | ascii_downcase | gsub("[ _]"; "-"))
+                }
+              | select(.stack != "nestjs" and .stack != "nodejs")
+              | "\(.name):\(.stack)"
+            ]
+            | join(", ")
+          ')
+
+          if [ -n "${INVALID_BACKEND_STACKS}" ]; then
+            echo "❌ Unsupported backend_stack values detected: ${INVALID_BACKEND_STACKS}. Allowed values: nestjs, nodejs."
+            exit 1
+          fi
+
+          SYSTEMS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c '
+            map(
+              . + {
+                backend_stack: (
+                  ((.backend_stack // .stack // .framework // "nestjs") | ascii_downcase | gsub("[ _]"; "-"))
+                ),
+                version_stream: (
+                  ((.version_stream // .name // .dir // "backend") | ascii_downcase | gsub("[^a-z0-9]+"; "-") | gsub("(^-+|-+$)"; ""))
+                  | if length > 0 then . else "backend" end
+                )
+              }
+            )
+          ')
+
+          if [ -z "${PIPELINE_MODE}" ]; then
+            SYSTEMS_COUNT=$(echo "${SYSTEMS_JSON}" | jq 'length')
+            if [ "${SYSTEMS_COUNT}" -gt 1 ]; then
+              PIPELINE_MODE="multi"
+            else
+              PIPELINE_MODE="single"
+            fi
+          fi
+
+          SYSTEMS_LABEL=$(echo "${SYSTEMS_JSON}" | jq -r 'map(.name) | join(", ")')
+
+          echo "systems_json=${SYSTEMS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "systems_label=${SYSTEMS_LABEL}" >> "$GITHUB_OUTPUT"
+          echo "pipeline_mode=${PIPELINE_MODE}" >> "$GITHUB_OUTPUT"
+
+  active-systems:
+    name: "Detect Active Backend Systems"
+    needs: [systems-config]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      active_systems_json: ${{ steps.select.outputs.active_systems_json }}
+      active_count: ${{ steps.select.outputs.active_count }}
+      active_label: ${{ steps.select.outputs.active_label }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Select active backend systems
+        id: select
+        env:
+          SYSTEMS_JSON: ${{ needs.systems-config.outputs.systems_json }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "workflow_call" ]; then
+            ACTIVE="${SYSTEMS_JSON}"
+          else
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            else
+              BASE_SHA="${{ github.event.before }}"
+            fi
+
+            if [ -z "${BASE_SHA}" ] || [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
+              BASE_SHA=$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)
+            fi
+
+            CHANGED_FILES=$(git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" || true)
+            CHANGED_JSON=$(printf "%s\n" "${CHANGED_FILES}" | sed '/^$/d' | jq -R . | jq -s .)
+            SYSTEM_DIRS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c '[.[] | (.dir // "" | gsub("^\\./"; "")) | select(. != "" and . != ".")]')
+
+            SHARED_CHANGED=false
+            if printf "%s\n" "${CHANGED_FILES}" | grep -Eq '^(\.github/|package\.json$|sonar-project\.properties$)'; then
+              SHARED_CHANGED=true
+            elif echo "${CHANGED_JSON}" | jq -e --argjson dirs "${SYSTEM_DIRS_JSON}" '
+              any(.[]; . as $file | ([$dirs[]? | select($file | startswith(. + "/"))] | length) == 0)
+            ' >/dev/null; then
+              SHARED_CHANGED=true
+            fi
+
+            if [ "${SHARED_CHANGED}" = "true" ]; then
+              ACTIVE="${SYSTEMS_JSON}"
+            else
+              ACTIVE=$(echo "${SYSTEMS_JSON}" | jq -c --argjson changed "${CHANGED_JSON}" '
+                map(select(
+                  . as $system
+                  | (($system.dir | gsub("^\\./"; "")) as $dir
+                    | if ($dir == "" or $dir == ".")
+                      then ($changed | length) > 0
+                      else any($changed[]; startswith($dir + "/"))
+                      end)
+                ))
+              ')
+            fi
+          fi
+
+          ACTIVE_COUNT=$(echo "${ACTIVE}" | jq 'length')
+          if [ "${ACTIVE_COUNT}" -gt 0 ]; then
+            ACTIVE_LABEL=$(echo "${ACTIVE}" | jq -r 'map(.name) | join(", ")')
+          else
+            ACTIVE_LABEL="None"
+          fi
+
+          echo "active_systems_json=${ACTIVE}" >> "$GITHUB_OUTPUT"
+          echo "active_count=${ACTIVE_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "active_label=${ACTIVE_LABEL}" >> "$GITHUB_OUTPUT"
+
+  validate-directories:
+    name: "Validate Backend Directories"
+    needs: active-systems
+    runs-on: ubuntu-latest
+    if: fromJson(needs.active-systems.outputs.active_count) > 0
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          echo '${{ needs.active-systems.outputs.active_systems_json }}' |
+          jq -r '.[].dir' | while read DIR; do
+            if [ ! -d "$DIR" ]; then
+              echo "❌ Missing backend directory: $DIR"
+              exit 1
+            fi
+          done
+          echo "✅ All backend directories exist."
+
+  backend-build:
+    name: "Backend Build — ${{ matrix.service.name }}"
+    needs: [active-systems, validate-directories]
+    if: fromJson(needs.active-systems.outputs.active_count) > 0
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+      fail-fast: false
+    uses: ./.github/workflows/backend-tests.yml
+    with:
+      working-directory: ${{ matrix.service.dir }}
+      system-name: ${{ matrix.service.name }}
+      backend-stack: ${{ matrix.service.backend_stack }}
+    secrets: inherit
+
+  backend-security:
+    name: "Backend Security Scan — ${{ matrix.service.name }}"
+    needs: [active-systems, backend-build]
+    if: inputs.enable_security_scan == true
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/security-scan.yml
+    with:
+      working-directory: ${{ matrix.service.dir }}
+      system-name: ${{ matrix.service.name }}
+    secrets: inherit
+
+  backend-sonar:
+    name: "SonarCloud — Backend Monorepo Analysis"
+    needs: [active-systems, backend-build]
+    if: >-
+      always() &&
+      inputs.enable_sonar == true &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.backend-build.result == 'success' || needs.backend-build.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate SonarCloud project access
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+        run: |
+          if [ -z "${SONAR_TOKEN}" ] || [ -z "${SONAR_ORGANIZATION}" ] || [ -z "${SONAR_PROJECT_KEY}" ]; then
+            echo "❌ SonarCloud preflight failed: one or more required secrets are empty."
+            exit 1
+          fi
+
+          RESPONSE=$(curl -sS -w "\n%{http_code}" -u "${SONAR_TOKEN}:" "https://sonarcloud.io/api/projects/search?organization=${SONAR_ORGANIZATION}&projects=${SONAR_PROJECT_KEY}")
+          HTTP_CODE=$(echo "${RESPONSE}" | tail -n 1)
+          BODY=$(echo "${RESPONSE}" | sed '$d')
+          TOTAL=$(echo "${BODY}" | jq -r '.paging.total // 0')
+
+          echo "🔎 Sonar preflight: org='${SONAR_ORGANIZATION}', project='${SONAR_PROJECT_KEY}', http=${HTTP_CODE}, total=${TOTAL}"
+
+          if [ "${HTTP_CODE}" -ne 200 ] || [ "${TOTAL}" -lt 1 ]; then
+            echo "❌ SonarCloud preflight failed: project not found or token has no access."
+            echo "Check SONAR_ORGANIZATION, SONAR_PROJECT_KEY, and SONAR_TOKEN permissions for this repository."
+            exit 1
+          fi
+
+          echo "✅ SonarCloud preflight passed."
+
+      - name: Download Coverage Artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-coverage"
+          merge-multiple: false
+          path: .coverage-artifacts
+
+      - name: Stage coverage to service directories
+        continue-on-error: true
+        run: |
+          SYSTEMS='${{ needs.active-systems.outputs.active_systems_json }}'
+          for artifact_dir in .coverage-artifacts/*-coverage; do
+            [ -d "${artifact_dir}" ] || continue
+            ARTIFACT_NAME=$(basename "${artifact_dir}")
+            SERVICE_NAME="${ARTIFACT_NAME%-coverage}"
+            DIR=$(echo "${SYSTEMS}" | jq -r --arg n "${SERVICE_NAME}"               '.[] | select(.name == $n) | .dir' | sed 's|^\./||; s|^\.$||')
+            DEST="${DIR:+${DIR}/}coverage"
+            mkdir -p "${DEST}"
+            cp -r "${artifact_dir}/." "${DEST}/"
+            echo "Staged ${SERVICE_NAME} coverage → ${DEST}/"
+          done
+
+      - name: Run SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          args: >
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+
+  docker-build-main:
+    name: "Backend Docker Build — ${{ matrix.service.name }}"
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    needs: [active-systems, backend-build, backend-security, backend-sonar]
+    if: >
+      always() &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      github.ref_name == 'main' &&
+      needs.backend-build.result == 'success' &&
+      (needs.backend-security.result == 'success' || needs.backend-security.result == 'skipped') &&
+      (needs.backend-sonar.result == 'success' || needs.backend-sonar.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      working-directory: ${{ matrix.service.dir }}
+      image-name: ${{ matrix.service.image }}
+      push-image: false
+      scan-vulnerabilities: true
+    secrets: inherit
+
+  deploy-preview:
+    name: "${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'test' && 'TEST' || 'UAT' }} Deploy — ${{ matrix.service.name }}"
+    needs: [active-systems, docker-build-main]
+    if: >
+      always() &&
+      inputs.run_deploy == true &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (
+        (github.event_name == 'pull_request' && (github.base_ref == 'test' || github.base_ref == 'uat')) ||
+        (github.ref_name == 'test' || github.ref_name == 'uat')
+      ) &&
+      (needs.docker-build-main.result == 'success' || needs.docker-build-main.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/deploy-staging.yml
+    with:
+      system-dir: ${{ matrix.service.dir }}
+      system-name: ${{ matrix.service.name }}
+      app-type: api
+      artifact-name: ${{ matrix.service.name }}-unit-test-results
+      deploy-environment: ${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'test' && 'test' || 'uat' }}
+    secrets: inherit
+
+  render-deploy:
+    name: "${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'test' && 'TEST' || (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'uat' && 'UAT' || 'PROD' }} Render Deploy — ${{ matrix.service.name }}"
+    needs: [active-systems, docker-build-main]
+    if: >
+      always() &&
+      inputs.run_deploy == true &&
+      (
+        (github.event_name == 'pull_request' && (github.base_ref == 'test' || github.base_ref == 'uat' || github.base_ref == 'main')) ||
+        (github.ref_name == 'test' || github.ref_name == 'uat' || github.ref_name == 'main')
+      ) &&
+      ((github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || inputs.dry_run != true) &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.docker-build-main.result == 'success' || needs.docker-build-main.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/render-deploy.yml
+    with:
+      system-name: ${{ matrix.service.name }}
+      environment: ${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'test' && 'test' || (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'uat' && 'uat' || 'production' }}
+      branch: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
+      require-api-center-check: true
+    secrets: inherit
+
+  grafana-k6:
+    name: "Backend Grafana k6 — ${{ matrix.service.name }}"
+    needs: [active-systems, backend-build, backend-security, backend-sonar, render-deploy]
+    if: >
+      always() &&
+      inputs.enable_k6 == true &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (needs.backend-build.result == 'success' || needs.backend-build.result == 'skipped') &&
+      (needs.backend-security.result == 'success' || needs.backend-security.result == 'skipped') &&
+      (needs.backend-sonar.result == 'success' || needs.backend-sonar.result == 'skipped') &&
+      (needs.render-deploy.result == 'success' || needs.render-deploy.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/grafana-k6.yml
+    with:
+      system-name: ${{ matrix.service.name }}
+      working-directory: ${{ matrix.service.dir }}
+      script-path: ${{ matrix.service.k6_script_path || inputs.k6_script_path }}
+      target-base-url: ${{ matrix.service.k6_base_url || inputs.k6_base_url }}
+      run-only-on-branch: ${{ matrix.service.k6_run_only_on_branch || inputs.k6_run_only_on_branch }}
+    secrets: inherit
+
+  version-test:
+    name: "Version TEST — ${{ matrix.service.name }}"
+    permissions:
+      contents: write
+    needs: [active-systems, backend-build, backend-sonar]
+    if: >
+      always() &&
+      github.ref_name == 'test' &&
+      (needs.backend-build.result == 'success') &&
+      (needs.backend-sonar.result == 'success' || needs.backend-sonar.result == 'skipped') &&
+      inputs.dry_run != true
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: test
+      stream: ${{ matrix.service.version_stream }}
+
+  version-uat:
+    name: "Version UAT — ${{ matrix.service.name }}"
+    permissions:
+      contents: write
+    needs: [active-systems, backend-build, backend-sonar]
+    if: >
+      always() &&
+      github.ref_name == 'uat' &&
+      (needs.backend-build.result == 'success') &&
+      (needs.backend-sonar.result == 'success' || needs.backend-sonar.result == 'skipped') &&
+      inputs.dry_run != true
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: uat
+      stream: ${{ matrix.service.version_stream }}
+
+  version-main:
+    name: "Version MAIN — ${{ matrix.service.name }}"
+    permissions:
+      contents: write
+    needs: [active-systems, backend-build, backend-sonar]
+    if: >
+      always() &&
+      github.ref_name == 'main' &&
+      (needs.backend-build.result == 'success') &&
+      (needs.backend-sonar.result == 'success' || needs.backend-sonar.result == 'skipped') &&
+      inputs.dry_run != true
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.active-systems.outputs.active_systems_json) }}
+    uses: ./.github/workflows/versioning.yml
+    with:
+      mode: release
+      stream: ${{ matrix.service.version_stream }}
+
+  prepare-promotion-payload:
+    name: "Prepare Promotion Payload"
+    needs: [active-systems, deploy-preview, render-deploy, grafana-k6, version-test, version-uat]
+    if: >-
+      always() &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      (github.ref_name == 'test' || github.ref_name == 'uat') &&
+      (needs.deploy-preview.result == 'success' || needs.deploy-preview.result == 'skipped') &&
+      (needs.render-deploy.result == 'success' || needs.render-deploy.result == 'skipped') &&
+      (needs.grafana-k6.result == 'success' || needs.grafana-k6.result == 'skipped') &&
+      ((github.ref_name == 'test' && (needs.version-test.result == 'success' || needs.version-test.result == 'skipped')) || (github.ref_name == 'uat' && (needs.version-uat.result == 'success' || needs.version-uat.result == 'skipped')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      deployment_urls_json: ${{ steps.build.outputs.deployment_urls_json }}
+      results_json: ${{ steps.build.outputs.results_json }}
+      versions_json: ${{ steps.build.outputs.versions_json }}
+    steps:
+      - name: Build backend promotion payload
+        id: build
+        env:
+          SYSTEMS_JSON: ${{ needs.active-systems.outputs.active_systems_json }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DEPLOY_RESULT: ${{ needs.deploy-preview.result }}
+          VERSION_TEST_RESULT: ${{ needs.version-test.result }}
+          VERSION_UAT_RESULT: ${{ needs.version-uat.result }}
+        run: |
+          DEPLOYMENT_URLS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c --arg runUrl "${RUN_URL}" 'reduce .[] as $s ({}; .[$s.name] = $runUrl)')
+
+          PIPELINE_RESULT="${DEPLOY_RESULT}"
+          if [ -z "${PIPELINE_RESULT}" ] || [ "${PIPELINE_RESULT}" = "skipped" ]; then
+            if [ "${{ github.ref_name }}" = "test" ]; then
+              PIPELINE_RESULT="${VERSION_TEST_RESULT}"
+            else
+              PIPELINE_RESULT="${VERSION_UAT_RESULT}"
+            fi
+          fi
+          if [ -z "${PIPELINE_RESULT}" ]; then
+            PIPELINE_RESULT="unknown"
+          fi
+
+          RESULTS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c --arg result "${PIPELINE_RESULT}" 'reduce .[] as $s ({}; .[$s.name] = $result)')
+
+          if [ "${{ github.ref_name }}" = "test" ]; then
+            PREFIX="test"
+          else
+            PREFIX="uat"
+          fi
+
+          VERSIONS_JSON=$(echo "${SYSTEMS_JSON}" | jq -c --arg p "${PREFIX}" 'reduce .[] as $s ({}; .[$s.name] = ($p + "-" + ($s.version_stream // $s.name // "backend")))')
+
+          echo "deployment_urls_json=${DEPLOYMENT_URLS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "results_json=${RESULTS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "versions_json=${VERSIONS_JSON}" >> "$GITHUB_OUTPUT"
+
+  promotion-diff-check:
+    name: "Promotion Branch Diff Check"
+    needs: [active-systems]
+    if: >-
+      always() &&
+      fromJson(needs.active-systems.outputs.active_count) > 0 &&
+      inputs.run_promotion == true &&
+      (github.ref_name == 'test' || github.ref_name == 'uat')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      test_to_uat_has_commits: ${{ steps.diff.outputs.test_to_uat_has_commits }}
+      uat_to_main_has_commits: ${{ steps.diff.outputs.uat_to_main_has_commits }}
+      test_to_uat_ahead: ${{ steps.diff.outputs.test_to_uat_ahead }}
+      uat_to_main_ahead: ${{ steps.diff.outputs.uat_to_main_ahead }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve promotion branch deltas
+        id: diff
+        run: |
+          git fetch --no-tags origin test uat main
+
+          TEST_TO_UAT_AHEAD=$(git rev-list --count origin/uat..origin/test 2>/dev/null || echo 0)
+          UAT_TO_MAIN_AHEAD=$(git rev-list --count origin/main..origin/uat 2>/dev/null || echo 0)
+
+          if [ "${TEST_TO_UAT_AHEAD}" -gt 0 ]; then
+            TEST_TO_UAT_HAS_COMMITS="true"
+          else
+            TEST_TO_UAT_HAS_COMMITS="false"
+          fi
+
+          if [ "${UAT_TO_MAIN_AHEAD}" -gt 0 ]; then
+            UAT_TO_MAIN_HAS_COMMITS="true"
+          else
+            UAT_TO_MAIN_HAS_COMMITS="false"
+          fi
+
+          echo "test_to_uat_ahead=${TEST_TO_UAT_AHEAD}" >> "$GITHUB_OUTPUT"
+          echo "uat_to_main_ahead=${UAT_TO_MAIN_AHEAD}" >> "$GITHUB_OUTPUT"
+          echo "test_to_uat_has_commits=${TEST_TO_UAT_HAS_COMMITS}" >> "$GITHUB_OUTPUT"
+          echo "uat_to_main_has_commits=${UAT_TO_MAIN_HAS_COMMITS}" >> "$GITHUB_OUTPUT"
+
+          echo "test->uat ahead count: ${TEST_TO_UAT_AHEAD}"
+          echo "uat->main ahead count: ${UAT_TO_MAIN_AHEAD}"
+
+  pr-to-uat:
+    name: "Create PR → UAT"
+    permissions:
+      contents: read
+      pull-requests: write
+    needs: [systems-config, active-systems, backend-build, backend-security, backend-sonar, grafana-k6, prepare-promotion-payload, version-test, promotion-diff-check]
+    if: >
+      always() &&
+      github.ref_name == 'test' &&
+      needs.promotion-diff-check.result == 'success' &&
+      needs.promotion-diff-check.outputs.test_to_uat_has_commits == 'true' &&
+      needs.prepare-promotion-payload.result == 'success' &&
+      (needs.version-test.result == 'success' || needs.version-test.result == 'skipped') &&
+      needs.backend-build.result == 'success' &&
+      (needs.backend-security.result == 'success' || needs.backend-security.result == 'skipped') &&
+      (needs.backend-sonar.result == 'success' || needs.backend-sonar.result == 'skipped') &&
+      (needs.grafana-k6.result == 'success' || needs.grafana-k6.result == 'skipped') &&
+      inputs.run_promotion == true
+    uses: ./.github/workflows/promotion.yml
+    with:
+      pipeline-kind: ${{ needs.systems-config.outputs.pipeline_mode }}
+      direction: test-to-uat
+      systems-json: ${{ needs.active-systems.outputs.active_systems_json }}
+      deployment-urls-json: ${{ needs.prepare-promotion-payload.outputs.deployment_urls_json }}
+      results-json: ${{ needs.prepare-promotion-payload.outputs.results_json }}
+      versions-json: ${{ needs.prepare-promotion-payload.outputs.versions_json }}
+      tests-status: ${{ needs.backend-build.result }}
+      security-status: ${{ needs.backend-security.result }}
+      sonar-status: ${{ needs.backend-sonar.result }}
+      grafana-status: ${{ needs.grafana-k6.result }}
+      quality-gates-json: ${{ format('{{"Tests":"{0}","Security":"{1}","SonarCloud":"{2}","Grafana k6":"{3}"}}', needs.backend-build.result, needs.backend-security.result, needs.backend-sonar.result, needs.grafana-k6.result) }}
+      pipeline-result: ${{ (needs.backend-build.result == 'success' || needs.backend-build.result == 'skipped') && (needs.backend-security.result == 'success' || needs.backend-security.result == 'skipped') && (needs.backend-sonar.result == 'success' || needs.backend-sonar.result == 'skipped') && (needs.grafana-k6.result == 'success' || needs.grafana-k6.result == 'skipped') && 'success' || (needs.backend-build.result == 'cancelled' || needs.backend-security.result == 'cancelled' || needs.backend-sonar.result == 'cancelled' || needs.grafana-k6.result == 'cancelled') && 'cancelled' || 'failure' }}
+      dry-run: ${{ inputs.dry_run }}
+    secrets:
+      PR_TOKEN: ${{ secrets.GH_PR_TOKEN != '' && secrets.GH_PR_TOKEN || github.token }}
+
+  pr-to-main:
+    name: "Create PR → Main"
+    permissions:
+      contents: read
+      pull-requests: write
+    needs: [systems-config, active-systems, backend-build, backend-security, backend-sonar, grafana-k6, prepare-promotion-payload, version-uat, promotion-diff-check]
+    if: >
+      always() &&
+      github.ref_name == 'uat' &&
+      needs.promotion-diff-check.result == 'success' &&
+      needs.promotion-diff-check.outputs.uat_to_main_has_commits == 'true' &&
+      needs.prepare-promotion-payload.result == 'success' &&
+      (needs.version-uat.result == 'success' || needs.version-uat.result == 'skipped') &&
+      needs.backend-build.result == 'success' &&
+      (needs.backend-security.result == 'success' || needs.backend-security.result == 'skipped') &&
+      (needs.backend-sonar.result == 'success' || needs.backend-sonar.result == 'skipped') &&
+      (needs.grafana-k6.result == 'success' || needs.grafana-k6.result == 'skipped') &&
+      inputs.run_promotion == true
+    uses: ./.github/workflows/promotion.yml
+    with:
+      pipeline-kind: ${{ needs.systems-config.outputs.pipeline_mode }}
+      direction: uat-to-main
+      systems-json: ${{ needs.active-systems.outputs.active_systems_json }}
+      deployment-urls-json: ${{ needs.prepare-promotion-payload.outputs.deployment_urls_json }}
+      results-json: ${{ needs.prepare-promotion-payload.outputs.results_json }}
+      versions-json: ${{ needs.prepare-promotion-payload.outputs.versions_json }}
+      tests-status: ${{ needs.backend-build.result }}
+      security-status: ${{ needs.backend-security.result }}
+      sonar-status: ${{ needs.backend-sonar.result }}
+      grafana-status: ${{ needs.grafana-k6.result }}
+      quality-gates-json: ${{ format('{{"Tests":"{0}","Security":"{1}","SonarCloud":"{2}","Grafana k6":"{3}"}}', needs.backend-build.result, needs.backend-security.result, needs.backend-sonar.result, needs.grafana-k6.result) }}
+      pipeline-result: ${{ (needs.backend-build.result == 'success' || needs.backend-build.result == 'skipped') && (needs.backend-security.result == 'success' || needs.backend-security.result == 'skipped') && (needs.backend-sonar.result == 'success' || needs.backend-sonar.result == 'skipped') && (needs.grafana-k6.result == 'success' || needs.grafana-k6.result == 'skipped') && 'success' || (needs.backend-build.result == 'cancelled' || needs.backend-security.result == 'cancelled' || needs.backend-sonar.result == 'cancelled' || needs.grafana-k6.result == 'cancelled') && 'cancelled' || 'failure' }}
+      dry-run: ${{ inputs.dry_run }}
+    secrets:
+      PR_TOKEN: ${{ secrets.GH_PR_TOKEN != '' && secrets.GH_PR_TOKEN || github.token }}
+
+  pipeline-summary:
+    name: "Pipeline Summary"
+    needs: [systems-config, active-systems, backend-build, backend-security, backend-sonar, grafana-k6, version-main, render-deploy]
+    if: always()
+    uses: ./.github/workflows/pipeline-summary.yml
+    with:
+      pipeline-kind: ${{ needs.systems-config.outputs.pipeline_mode }}
+      systems-json: ${{ needs.active-systems.outputs.active_systems_json }}
+      results-json: '{}'
+      overall-result: ${{ (needs.backend-build.result == 'success' || needs.backend-build.result == 'skipped') && (needs.backend-security.result == 'success' || needs.backend-security.result == 'skipped') && (needs.backend-sonar.result == 'success' || needs.backend-sonar.result == 'skipped') && (needs.grafana-k6.result == 'success' || needs.grafana-k6.result == 'skipped') && (needs.version-main.result == 'success' || needs.version-main.result == 'skipped') && (needs.render-deploy.result == 'success' || needs.render-deploy.result == 'skipped') && 'success' || (needs.backend-build.result == 'cancelled' || needs.backend-security.result == 'cancelled' || needs.backend-sonar.result == 'cancelled' || needs.grafana-k6.result == 'cancelled' || needs.version-main.result == 'cancelled' || needs.render-deploy.result == 'cancelled') && 'cancelled' || 'failure' }}
+
+  notify:
+    name: "Notify Backend Pipeline"
+    needs: [systems-config, active-systems, pipeline-summary, backend-build, backend-security, backend-sonar, grafana-k6, render-deploy, prepare-promotion-payload]
+    if: always()
+    uses: ./.github/workflows/notifications.yml
+    with:
+      status: ${{ needs.pipeline-summary.result == 'success' && 'success' || needs.pipeline-summary.result == 'cancelled' && 'cancelled' || 'failure' }}
+      system-dir: ${{ needs.active-systems.outputs.active_label }}
+      pipeline-type: "Backend CI/CD"
+      deployment-urls-json: ${{ needs.prepare-promotion-payload.outputs.deployment_urls_json }}
+      tests-status: ${{ needs.backend-build.result }}
+      security-status: ${{ needs.backend-security.result }}
+      sonar-status: ${{ needs.backend-sonar.result }}
+      grafana-status: ${{ needs.grafana-k6.result }}
+      pipeline-result: ${{ needs.pipeline-summary.result == 'success' && 'success' || needs.pipeline-summary.result == 'cancelled' && 'cancelled' || 'failure' }}
+    secrets: inherit
