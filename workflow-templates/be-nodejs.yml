@@ -1,0 +1,78 @@
+﻿# Granular backend Node.js workflow.
+# Copy to .github/workflows/backend-ci.yml in a consumer repository.
+
+name: "Backend CI"
+
+on:
+  push:
+    branches: [test, uat, main]
+  pull_request:
+    branches: [test, uat, main]
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: "Service name for display and artifacts"
+        required: true
+        type: string
+        default: "backend"
+      service_path:
+        description: "Relative path to the backend service"
+        required: false
+        type: string
+        default: "."
+      node_version:
+        description: "Node.js version"
+        required: false
+        type: number
+        default: 20
+      coverage_threshold:
+        description: "Minimum coverage percentage"
+        required: false
+        type: number
+        default: 80
+      docker_image:
+        description: "Optional image name. Leave empty to skip Docker build."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
+jobs:
+  unit-tests:
+    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/backend-tests.yml@v1
+    with:
+      working-directory: ${{ inputs.service_path || '.' }}
+      system-name: ${{ inputs.service_name || 'backend' }}
+      backend-stack: nodejs
+      node-version: ${{ inputs.node_version || 20 }}
+      coverage-threshold: ${{ inputs.coverage_threshold || 80 }}
+
+  lint:
+    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/lint-check.yml@v1
+    with:
+      working-directory: ${{ inputs.service_path || '.' }}
+      system-name: ${{ inputs.service_name || 'backend' }}
+      node-version: ${{ inputs.node_version || 20 }}
+
+  security:
+    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/security-scan.yml@v1
+    with:
+      working-directory: ${{ inputs.service_path || '.' }}
+      system-name: ${{ inputs.service_name || 'backend' }}
+      node-version: ${{ inputs.node_version || 20 }}
+      fail-on-high: true
+
+  docker:
+    needs: [unit-tests, lint, security]
+    if: ${{ inputs.docker_image != '' }}
+    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/docker-build.yml@v1
+    with:
+      working-directory: ${{ inputs.service_path || '.' }}
+      image-name: ${{ inputs.docker_image }}
+      push-image: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+      scan-vulnerabilities: true
+

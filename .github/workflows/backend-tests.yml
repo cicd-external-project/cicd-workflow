@@ -103,7 +103,9 @@ jobs:
           TEST_CMD: ${{ inputs.test-command }}
           RUN_PARALLEL: ${{ inputs.run-parallel }}
         run: |
-          if [ "${RUN_PARALLEL}" = "true" ]; then
+          if [[ "${TEST_CMD}" == *"--runInBand"* || "${TEST_CMD}" == *"--maxWorkers"* ]]; then
+            bash -c "${TEST_CMD}"
+          elif [ "${RUN_PARALLEL}" = "true" ]; then
             bash -c "${TEST_CMD} --maxWorkers=50%"
           else
             bash -c "${TEST_CMD} --runInBand"

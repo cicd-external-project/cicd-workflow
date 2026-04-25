@@ -1,0 +1,79 @@
+﻿# Granular frontend Next.js workflow.
+# Copy to .github/workflows/frontend-ci.yml in a consumer repository.
+
+name: "Frontend CI"
+
+on:
+  push:
+    branches: [test, uat, main]
+  pull_request:
+    branches: [test, uat, main]
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: "Service name for display and artifacts"
+        required: true
+        type: string
+        default: "frontend"
+      service_path:
+        description: "Relative path to the frontend service"
+        required: false
+        type: string
+        default: "."
+      node_version:
+        description: "Node.js version"
+        required: false
+        type: number
+        default: 20
+      coverage_threshold:
+        description: "Minimum coverage percentage"
+        required: false
+        type: number
+        default: 80
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  unit-tests:
+    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/frontend-tests.yml@v1
+    with:
+      working-directory: ${{ inputs.service_path || '.' }}
+      system-name: ${{ inputs.service_name || 'frontend' }}
+      node-version: ${{ inputs.node_version || 20 }}
+      coverage-threshold: ${{ inputs.coverage_threshold || 80 }}
+      test-command: npm run test
+
+  lint:
+    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/lint-check.yml@v1
+    with:
+      working-directory: ${{ inputs.service_path || '.' }}
+      system-name: ${{ inputs.service_name || 'frontend' }}
+      node-version: ${{ inputs.node_version || 20 }}
+      lint-command: npm run lint
+
+  security:
+    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/security-scan.yml@v1
+    with:
+      working-directory: ${{ inputs.service_path || '.' }}
+      system-name: ${{ inputs.service_name || 'frontend' }}
+      node-version: ${{ inputs.node_version || 20 }}
+      fail-on-high: true
+
+  build:
+    needs: [unit-tests, lint, security]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./${{ inputs.service_path || '.' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node_version || 20 }}
+          cache: npm
+          cache-dependency-path: "**/package-lock.json"
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+

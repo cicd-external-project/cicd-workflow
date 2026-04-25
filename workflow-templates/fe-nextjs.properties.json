@@ -1,0 +1,6 @@
+{
+  "name": "Frontend Next.js",
+  "description": "Granular Next.js frontend workflow using central reusable checks.",
+  "categories": ["frontend", "nextjs", "ci"],
+  "filePatterns": ["next.config.js", "next.config.mjs", "next.config.ts", "package.json"]
+}

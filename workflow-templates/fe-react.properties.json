@@ -1,0 +1,6 @@
+{
+  "name": "Frontend React",
+  "description": "Granular React frontend workflow using central reusable checks.",
+  "categories": ["frontend", "react", "ci"],
+  "filePatterns": ["vite.config.ts", "vite.config.js", "package.json"]
+}

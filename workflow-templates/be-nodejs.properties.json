@@ -1,0 +1,6 @@
+{
+  "name": "Backend Node.js",
+  "description": "Granular Node.js backend workflow using central reusable checks.",
+  "categories": ["backend", "nodejs", "ci"],
+  "filePatterns": ["package.json"]
+}

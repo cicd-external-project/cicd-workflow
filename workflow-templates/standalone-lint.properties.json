@@ -1,0 +1,6 @@
+{
+  "name": "Standalone Lint",
+  "description": "Single-action workflow that calls the central lint reusable workflow.",
+  "categories": ["ci", "lint"],
+  "filePatterns": ["package.json"]
+}
