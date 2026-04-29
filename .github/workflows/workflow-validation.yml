@@ -5,6 +5,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/**"
+      - "catalog/**"
+      - "starter-templates/**"
       - "workflow-templates/**"
       - "docs/workflows/**"
       - ".claude/**"
@@ -111,6 +113,294 @@ jobs:
           done
 
           exit "$failed"
+
+  validate-catalog-and-starters:
+    name: "Validate Catalog And Starters"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Assert catalog and starter integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { execFileSync } = require('node:child_process');
+
+          const idPattern = /^[a-z0-9][a-z0-9-]*$/;
+          const requiredStarterExcludes = ['.git', 'node_modules', 'dist', 'coverage', '.env', '.env.*'];
+          let failed = false;
+
+          function error(file, message) {
+            console.error(`::error file=${file}::${message}`);
+            failed = true;
+          }
+
+          function readJson(file) {
+            try {
+              return JSON.parse(fs.readFileSync(file, 'utf8'));
+            } catch (cause) {
+              error(file, `Invalid JSON: ${cause.message}`);
+              return null;
+            }
+          }
+
+          function assertArray(file, owner, key) {
+            if (!Array.isArray(owner[key])) {
+              error(file, `Expected ${key} to be an array`);
+              return [];
+            }
+            return owner[key];
+          }
+
+          function assertUniqueIds(file, items, label) {
+            const ids = new Set();
+            for (const item of items) {
+              if (!item || typeof item.id !== 'string' || !idPattern.test(item.id)) {
+                error(file, `${label} has invalid id ${JSON.stringify(item && item.id)}`);
+                continue;
+              }
+              if (ids.has(item.id)) {
+                error(file, `${label} id ${item.id} is duplicated`);
+              }
+              ids.add(item.id);
+            }
+            return ids;
+          }
+
+          function collectTemplateJobs(templateId) {
+            const file = path.join('workflow-templates', `${templateId}.yml`);
+            if (!fs.existsSync(file)) {
+              error(file, `Missing workflow template ${templateId}`);
+              return new Set();
+            }
+
+            const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+            const jobs = [];
+            let inJobs = false;
+            for (const line of lines) {
+              if (line === 'jobs:') {
+                inJobs = true;
+                continue;
+              }
+              if (!inJobs) {
+                continue;
+              }
+              const match = line.match(/^  ([A-Za-z0-9_-]+):\s*$/);
+              if (match) {
+                jobs.push(match[1]);
+              }
+            }
+
+            if (jobs[0] !== 'validate-access') {
+              error(file, 'First job must be validate-access');
+            }
+            return new Set(jobs);
+          }
+
+          function gitFiles(args) {
+            try {
+              return execFileSync('git', args, { encoding: 'utf8' })
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean);
+            } catch (cause) {
+              error('starter-templates', `Failed to list git files: ${cause.message}`);
+              return [];
+            }
+          }
+
+          function collectCandidateFiles(root) {
+            return [
+              ...gitFiles(['ls-files', root]),
+              ...gitFiles(['ls-files', '--others', '--exclude-standard', root]),
+            ];
+          }
+
+          const projectTypesFile = 'catalog/project-types.json';
+          const workflowRecipesFile = 'catalog/workflow-recipes.json';
+          const projectCatalog = readJson(projectTypesFile);
+          const recipeCatalog = readJson(workflowRecipesFile);
+
+          if (!projectCatalog || !recipeCatalog) {
+            process.exit(1);
+          }
+
+          const repoShapes = assertArray(projectTypesFile, projectCatalog, 'repoShapes');
+          const projectTypes = assertArray(projectTypesFile, projectCatalog, 'projectTypes');
+          const recipes = assertArray(workflowRecipesFile, recipeCatalog, 'recipes');
+
+          const repoShapeIds = assertUniqueIds(projectTypesFile, repoShapes, 'repoShape');
+          const projectTypeIds = assertUniqueIds(projectTypesFile, projectTypes, 'projectType');
+          const recipeIds = assertUniqueIds(workflowRecipesFile, recipes, 'recipe');
+
+          const singleApp = repoShapes.find((shape) => shape.id === 'single-app');
+          if (!singleApp || singleApp.enabled !== true) {
+            error(projectTypesFile, 'single-app repo shape must exist and be enabled');
+          }
+
+          for (const reservedShape of ['monorepo', 'fullstack', 'library', 'mobile']) {
+            const shape = repoShapes.find((item) => item.id === reservedShape);
+            if (!shape || shape.enabled !== false) {
+              error(projectTypesFile, `${reservedShape} repo shape must exist and be disabled for MVP`);
+            }
+          }
+
+          const recipeById = new Map(recipes.map((recipe) => [recipe.id, recipe]));
+
+          for (const projectType of projectTypes) {
+            const projectFile = projectTypesFile;
+            if (!projectType.label) error(projectFile, `${projectType.id} is missing label`);
+            if (!projectType.starterPath) error(projectFile, `${projectType.id} is missing starterPath`);
+            if (!projectType.defaultRecipe || !recipeIds.has(projectType.defaultRecipe)) {
+              error(projectFile, `${projectType.id} references missing defaultRecipe ${projectType.defaultRecipe}`);
+            }
+
+            const allowedRecipes = assertArray(projectFile, projectType, 'allowedRecipes');
+            for (const recipeId of allowedRecipes) {
+              if (!recipeIds.has(recipeId)) {
+                error(projectFile, `${projectType.id} allows missing recipe ${recipeId}`);
+              }
+            }
+
+            for (const repoShape of assertArray(projectFile, projectType, 'repoShapes')) {
+              if (!repoShapeIds.has(repoShape)) {
+                error(projectFile, `${projectType.id} references missing repo shape ${repoShape}`);
+              }
+            }
+
+            const starterPath = projectType.starterPath;
+            const starterJsonFile = path.join(starterPath, 'starter.json');
+            const packageJsonFile = path.join(starterPath, 'package.json');
+
+            if (!fs.existsSync(starterPath)) {
+              error(projectFile, `${projectType.id} starterPath does not exist: ${starterPath}`);
+              continue;
+            }
+            if (!fs.existsSync(starterJsonFile)) {
+              error(starterJsonFile, `${projectType.id} starter is missing starter.json`);
+              continue;
+            }
+            if (!fs.existsSync(packageJsonFile)) {
+              error(packageJsonFile, `${projectType.id} starter is missing package.json`);
+              continue;
+            }
+
+            const starter = readJson(starterJsonFile);
+            const packageJson = readJson(packageJsonFile);
+            if (!starter || !packageJson) {
+              continue;
+            }
+
+            if (starter.projectTypeId !== projectType.id) {
+              error(starterJsonFile, `starter projectTypeId must be ${projectType.id}`);
+            }
+            if (starter.defaultWorkflowRecipeId !== projectType.defaultRecipe) {
+              error(starterJsonFile, `starter defaultWorkflowRecipeId must be ${projectType.defaultRecipe}`);
+            }
+
+            const requiredScripts = assertArray(starterJsonFile, starter, 'requiredScripts');
+            const scripts = packageJson.scripts || {};
+            for (const script of requiredScripts) {
+              if (!scripts[script]) {
+                error(packageJsonFile, `Missing required npm script ${script}`);
+              }
+            }
+
+            for (const substitutionFile of assertArray(starterJsonFile, starter, 'substitutionFiles')) {
+              const full = path.join(starterPath, substitutionFile);
+              if (!fs.existsSync(full)) {
+                error(starterJsonFile, `Substitution file does not exist: ${substitutionFile}`);
+              }
+            }
+
+            const copyExcludes = assertArray(starterJsonFile, starter, 'copyExcludes');
+            for (const expected of requiredStarterExcludes) {
+              if (!copyExcludes.includes(expected)) {
+                error(starterJsonFile, `copyExcludes must include ${expected}`);
+              }
+            }
+          }
+
+          for (const recipe of recipes) {
+            const recipeFile = workflowRecipesFile;
+            const supportedProjectTypes = assertArray(recipeFile, recipe, 'supportedProjectTypes');
+            const templateByProjectType = recipe.templateByProjectType || {};
+            const optionJobs = recipe.optionJobs || {};
+            const supportedOptions = recipe.supportedOptions || {};
+            const mandatoryJobs = assertArray(recipeFile, recipe, 'mandatoryJobs');
+
+            if (!mandatoryJobs.includes('validate-access')) {
+              error(recipeFile, `${recipe.id} must require validate-access`);
+            }
+
+            for (const projectTypeId of supportedProjectTypes) {
+              if (!projectTypeIds.has(projectTypeId)) {
+                error(recipeFile, `${recipe.id} references missing project type ${projectTypeId}`);
+                continue;
+              }
+
+              const projectType = projectTypes.find((item) => item.id === projectTypeId);
+              if (!projectType.allowedRecipes.includes(recipe.id)) {
+                error(projectTypesFile, `${projectTypeId} must allow recipe ${recipe.id}`);
+              }
+
+              const templateId = templateByProjectType[projectTypeId];
+              if (!templateId) {
+                error(recipeFile, `${recipe.id} is missing template mapping for ${projectTypeId}`);
+                continue;
+              }
+              if (!fs.existsSync(path.join('workflow-templates', `${templateId}.properties.json`))) {
+                error(recipeFile, `${recipe.id} template ${templateId} is missing metadata`);
+              }
+
+              const jobs = collectTemplateJobs(templateId);
+              for (const job of mandatoryJobs) {
+                if (!jobs.has(job)) {
+                  error(recipeFile, `${recipe.id} template ${templateId} is missing mandatory job ${job}`);
+                }
+              }
+
+              for (const [option, enabled] of Object.entries(supportedOptions)) {
+                if (enabled !== true) {
+                  continue;
+                }
+                const job = optionJobs[option];
+                if (!job) {
+                  error(recipeFile, `${recipe.id} supports option ${option} but does not map it to a job`);
+                } else if (!jobs.has(job)) {
+                  error(recipeFile, `${recipe.id} maps option ${option} to missing job ${job} in ${templateId}`);
+                }
+              }
+            }
+          }
+
+          for (const file of collectCandidateFiles('starter-templates')) {
+            const normalized = file.replace(/\\/g, '/');
+            const parts = normalized.split('/');
+            const basename = parts[parts.length - 1];
+            if (parts.includes('.git') || parts.includes('node_modules') || parts.includes('dist') || parts.includes('coverage')) {
+              error(file, 'Starter templates must not commit repo metadata, dependencies, or build output');
+            }
+            if (basename === '.env' || basename.startsWith('.env.')) {
+              error(file, 'Starter templates must not commit environment files');
+            }
+
+            const content = fs.readFileSync(file, 'utf8');
+            if (/BEGIN (RSA |OPENSSH |EC |)PRIVATE KEY|github_pat_|ghp_|SUPABASE_SERVICE_ROLE_KEY|PAYMONGO_SECRET_KEY/i.test(content)) {
+              error(file, 'Starter template appears to contain a secret');
+            }
+          }
+
+          if (failed) {
+            process.exit(1);
+          }
+          NODE
 
   validate-no-legacy-granular-deps:
     name: "Validate No Legacy Caller Dependencies"

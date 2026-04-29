@@ -1,0 +1,12 @@
+{
+  "name": "starter-nodejs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "node ./scripts/lint.mjs",
+    "test": "node ./scripts/test.mjs",
+    "test:cov": "node ./scripts/test.mjs && node ./scripts/write-coverage.mjs",
+    "build": "node ./scripts/build.mjs"
+  }
+}

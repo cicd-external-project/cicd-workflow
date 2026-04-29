@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "projectTypeId": "nextjs-app",
+  "displayName": "Next.js App",
+  "defaultWorkflowRecipeId": "frontend-standard-ci",
+  "requiredScripts": ["lint", "test", "build"],
+  "substitutionFiles": ["package.json", "package-lock.json", "README.md", "src/app/site.js"],
+  "copyExcludes": [".git", "node_modules", "dist", "coverage", ".env", ".env.*"]
+}

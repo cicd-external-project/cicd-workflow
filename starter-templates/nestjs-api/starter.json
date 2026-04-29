@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "projectTypeId": "nestjs-api",
+  "displayName": "NestJS API",
+  "defaultWorkflowRecipeId": "backend-api-ci",
+  "requiredScripts": ["lint", "test", "test:cov", "build"],
+  "substitutionFiles": ["package.json", "package-lock.json", "README.md", "src/app.service.js"],
+  "copyExcludes": [".git", "node_modules", "dist", "coverage", ".env", ".env.*"]
+}

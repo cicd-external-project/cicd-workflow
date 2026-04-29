@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "recipes": [
+    {
+      "id": "frontend-standard-ci",
+      "label": "Frontend Standard CI",
+      "description": "Validate access, run frontend tests, lint, security scan, and build.",
+      "supportedProjectTypes": ["nextjs-app", "react-spa"],
+      "templateByProjectType": {
+        "nextjs-app": "fe-nextjs",
+        "react-spa": "fe-react"
+      },
+      "mandatoryJobs": ["validate-access"],
+      "supportedOptions": {
+        "lint": true,
+        "unit": true,
+        "build": true,
+        "coverage": true,
+        "security": true,
+        "docker": false,
+        "e2e": false
+      },
+      "optionJobs": {
+        "lint": "lint",
+        "unit": "unit-tests",
+        "build": "build",
+        "coverage": "unit-tests",
+        "security": "security"
+      }
+    },
+    {
+      "id": "backend-api-ci",
+      "label": "Backend API CI",
+      "description": "Validate access, run backend tests, lint, security scan, and optional Docker build.",
+      "supportedProjectTypes": ["nestjs-api", "nodejs-api"],
+      "templateByProjectType": {
+        "nestjs-api": "be-nestjs",
+        "nodejs-api": "be-nodejs"
+      },
+      "mandatoryJobs": ["validate-access"],
+      "supportedOptions": {
+        "lint": true,
+        "unit": true,
+        "build": false,
+        "coverage": true,
+        "security": true,
+        "docker": true,
+        "e2e": false
+      },
+      "optionJobs": {
+        "lint": "lint",
+        "unit": "unit-tests",
+        "coverage": "unit-tests",
+        "security": "security",
+        "docker": "docker"
+      }
+    }
+  ]
+}

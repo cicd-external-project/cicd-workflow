@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "projectTypeId": "react-spa",
+  "displayName": "React SPA",
+  "defaultWorkflowRecipeId": "frontend-standard-ci",
+  "requiredScripts": ["lint", "test", "build"],
+  "substitutionFiles": ["package.json", "package-lock.json", "README.md", "src/App.js"],
+  "copyExcludes": [".git", "node_modules", "dist", "coverage", ".env", ".env.*"]
+}
