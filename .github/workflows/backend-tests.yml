@@ -38,6 +38,11 @@ on:
         type: number
         default: 80
         description: "Minimum coverage percentage"
+      enforce-coverage:
+        required: false
+        type: boolean
+        default: true
+        description: "Fail when coverage is below threshold or missing"
       run-parallel:
         required: false
         type: boolean
@@ -109,6 +114,9 @@ jobs:
       - name: Parse Coverage
         id: coverage-check
         if: always()
+        env:
+          ENFORCE_COVERAGE: ${{ inputs.enforce-coverage }}
+          THRESHOLD: ${{ inputs.coverage-threshold }}
         run: |
           if [ -f "coverage/coverage-summary.json" ]; then
             COVERAGE=$(node -e "
@@ -118,7 +126,11 @@ jobs:
             echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
             echo "Line Coverage: ${COVERAGE}%"
 
-            THRESHOLD=${{ inputs.coverage-threshold }}
+            if [ "${ENFORCE_COVERAGE}" != "true" ]; then
+              echo "Coverage threshold enforcement disabled"
+              exit 0
+            fi
+
             COVERAGE="${COVERAGE}" THRESHOLD="${THRESHOLD}" node -e "
               const coverage = Number(process.env.COVERAGE);
               const threshold = Number(process.env.THRESHOLD);
@@ -130,7 +142,11 @@ jobs:
             "
           else
             echo "coverage=unknown" >> $GITHUB_OUTPUT
-            echo "Warning: Coverage summary not found"
+            if [ "${ENFORCE_COVERAGE}" = "true" ]; then
+              echo "coverage/coverage-summary.json not found - failing coverage gate"
+              exit 1
+            fi
+            echo "coverage/coverage-summary.json not found - coverage gate disabled"
           fi
 
       - name: Upload Coverage Artifact

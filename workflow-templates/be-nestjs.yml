@@ -30,6 +30,11 @@ on:
         required: false
         type: number
         default: 80
+      enforce_coverage:
+        description: "Fail when coverage is below threshold or missing"
+        required: false
+        type: boolean
+        default: true
       docker_image:
         description: "Optional image name. Leave empty to skip Docker build."
         required: false
@@ -56,6 +61,7 @@ jobs:
       backend-stack: nestjs
       node-version: ${{ inputs.node_version || 24 }}
       coverage-threshold: ${{ inputs.coverage_threshold || 80 }}
+      enforce-coverage: ${{ inputs.enforce_coverage != false }}
       test-command: npm test
       run-parallel: false
 

@@ -30,6 +30,11 @@ on:
         required: false
         type: number
         default: 80
+      enforce_coverage:
+        description: "Fail when coverage is below threshold or missing"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -49,6 +54,7 @@ jobs:
       system-name: ${{ inputs.service_name || 'frontend' }}
       node-version: ${{ inputs.node_version || 24 }}
       coverage-threshold: ${{ inputs.coverage_threshold || 80 }}
+      enforce-coverage: ${{ inputs.enforce_coverage != false }}
       test-command: npm run test
 
   lint:

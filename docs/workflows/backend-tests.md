@@ -18,7 +18,7 @@ Runs backend unit tests and optional integration tests with coverage.
 - Source workflow: `.github/workflows/backend-tests.yml`
 - Trigger: `workflow_call`
 - Required inputs: `system-name`
-- Optional inputs: `working-directory`, `backend-stack`, `node-version`, `test-command`, `integration-test-command`, `coverage-threshold`, `run-parallel`, `upload-artifact`
+- Optional inputs: `working-directory`, `backend-stack`, `node-version`, `test-command`, `integration-test-command`, `coverage-threshold`, `enforce-coverage`, `run-parallel`, `upload-artifact`
 - Secrets: none
 - Outputs: `unit-test-result`, `integration-test-result`, `coverage-percent`
 
@@ -68,4 +68,5 @@ jobs:
 - This workflow is safe to run standalone.
 - It does not call lint, security, Docker, deploy, or promotion internally.
 - If `integration-test-command` is empty, integration tests are skipped.
-- If the test command does not create `coverage/coverage-summary.json`, the workflow reports coverage as `unknown` instead of failing only because coverage is missing.
+- If `enforce-coverage` is `true`, missing or below-threshold coverage fails the workflow.
+- If `enforce-coverage` is `false`, missing coverage is reported as `unknown` and does not fail the workflow by itself.
