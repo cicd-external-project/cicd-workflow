@@ -8,7 +8,8 @@ Validates CI subscription access before paid workflow execution.
 
 ## Public Contract
 - Source workflow: `.github/workflows/validate-subscription.yml`
-- Inputs: none
+- Inputs:
+  - `validation-api-url` - optional public backend URL for `POST /v1/ci/validate`; defaults to `https://api.implementsprint.com/v1/ci/validate`
 - Secrets: `CI_TOKEN`
 - Outputs: none
 
@@ -20,6 +21,8 @@ Downstream paid jobs must declare `needs: validate-access` so subscription failu
 jobs:
   validate-access:
     uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/validate-subscription.yml@v1
+    with:
+      validation-api-url: ${{ env.CI_VALIDATE_URL }}
     secrets:
       CI_TOKEN: ${{ secrets.CI_TOKEN }}
 

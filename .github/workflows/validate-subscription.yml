@@ -3,6 +3,12 @@ name: "Validate CI Subscription"
 
 on:
   workflow_call:
+    inputs:
+      validation-api-url:
+        required: false
+        type: string
+        default: "https://api.implementsprint.com/v1/ci/validate"
+        description: "Public backend URL for CI token validation"
     secrets:
       CI_TOKEN:
         required: true
@@ -15,12 +21,13 @@ jobs:
     steps:
       - name: Validate CI token
         run: |
+          VALIDATION_API_URL="${{ inputs.validation-api-url }}"
           RESPONSE=$(curl -sf -w "\n%{http_code}" \
             -X POST \
             -H "Authorization: Bearer ${{ secrets.CI_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{\"repo\":\"${{ github.repository }}\"}" \
-            https://api.implementsprint.com/v1/ci/validate) || true
+            "$VALIDATION_API_URL") || true
 
           HTTP_CODE=$(printf '%s' "$RESPONSE" | tail -1)
           BODY=$(printf '%s' "$RESPONSE" | head -n -1)
