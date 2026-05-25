@@ -1,5 +1,5 @@
 # Copy into a consuming repository via GitHub workflow templates.
-# After onboarding, pin ImplementSprint/central-workflow refs to a release tag.
+# SaaS-generated customer workflows should pin cicd-workflow refs to a stable release tag.
 name: "Expo Service Pipeline"
 
 on:
@@ -58,7 +58,7 @@ jobs:
 
       - name: Discover Service Configuration
         id: discover
-        uses: ImplementSprint/central-workflow/.github/actions/discover-service@main
+        uses: Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/actions/discover-service@v1
         with:
           stack: expo
           service-path: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_path || '' }}
@@ -68,7 +68,7 @@ jobs:
     name: "Run Expo Pipeline"
     needs: [discover]
     if: ${{ needs.discover.outputs.should-run == 'true' }}
-    uses: ImplementSprint/central-workflow/.github/workflows/service-expo.yml@main
+    uses: Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/service-expo.yml@v1
     with:
       service-name: ${{ needs.discover.outputs.service-name }}
       service-path: ${{ needs.discover.outputs.service-path }}

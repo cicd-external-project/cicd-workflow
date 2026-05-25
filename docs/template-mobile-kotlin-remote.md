@@ -7,7 +7,7 @@ Verification date:
 - 2026-04-10
 
 Current caller workflow ref (documented exactly from remote default branch):
-- `ImplementSprint/central-workflow/.github/workflows/master-pipeline-mobile.yml@main`
+- `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-mobile.yml@v1`
 
 ## Required Branches
 

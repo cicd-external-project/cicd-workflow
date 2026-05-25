@@ -1,6 +1,6 @@
 # Central Caller Templates Setup
 
-This guide covers the caller templates in `central-workflow/templates` and what consuming repositories must provide.
+This guide covers the caller templates in `cicd-workflow/templates` and what consuming repositories must provide.
 
 Files covered:
 - `templates/fe-pipeline-caller.yml`
@@ -10,7 +10,7 @@ Files covered:
 ## FE Caller
 
 Current orchestrator ref in template:
-- `ImplementSprint/central-workflow/.github/workflows/master-pipeline-fe.yml@v1`
+- `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-fe.yml@v1`
 
 Required repository variables:
 - `FE_SINGLE_SYSTEMS_JSON` or `FE_MULTI_SYSTEMS_JSON`
@@ -61,7 +61,7 @@ Multi:
 ## BE Caller
 
 Current orchestrator ref in template:
-- `ImplementSprint/central-workflow/.github/workflows/master-pipeline-be.yml@v1`
+- `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-be.yml@v1`
 
 Required repository variables:
 - `BACKEND_SINGLE_SYSTEMS_JSON` or `BACKEND_MULTI_SYSTEMS_JSON`
@@ -101,7 +101,7 @@ Node:
 ## Mobile Caller
 
 Current orchestrator ref in template:
-- `ImplementSprint/central-workflow/.github/workflows/master-pipeline-mobile.yml@v1`
+- `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-mobile.yml@v1`
 
 Required repository variables:
 - `MOBILE_SINGLE_SYSTEMS_JSON` or `MOBILE_MULTI_SYSTEMS_JSON`

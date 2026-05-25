@@ -1,0 +1,36 @@
+name: "CI/CD Pipeline"
+
+on:
+  push:
+    branches: [test, uat, main]
+  pull_request:
+    branches: [test, uat, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: write
+  security-events: write
+
+concurrency:
+  group: cicd-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    uses: Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-fe.yml@v1
+    with:
+      pipeline_mode: single
+      enable_playwright: false
+      playwright_browsers: '["chromium"]'
+      e2e_base_url: ""
+      playwright_run_only_on_branch: "test,uat"
+      enable_grafana_k6: false
+      k6_script_path: "tests/performance"
+      k6_base_url: ""
+      k6_run_only_on_branch: "test,uat"
+      run_deploy: false
+      run_promotion: false
+      dry_run: false
+    secrets: inherit

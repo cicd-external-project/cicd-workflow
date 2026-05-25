@@ -1,0 +1,36 @@
+[
+  {
+    "key": "none",
+    "label": "No deployment provider",
+    "supportedStacks": ["nextjs", "nestjs"],
+    "plan": "free",
+    "requiresSecrets": [],
+    "requiresVariables": [],
+    "setupUrl": null
+  },
+  {
+    "key": "vercel",
+    "label": "Vercel",
+    "supportedStacks": ["nextjs"],
+    "plan": "pro",
+    "requiresSecrets": ["VERCEL_TOKEN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID"],
+    "requiresVariables": [],
+    "setupUrl": "https://vercel.com/account/tokens"
+  },
+  {
+    "key": "render",
+    "label": "Render",
+    "supportedStacks": ["nestjs"],
+    "plan": "pro",
+    "requiresSecrets": [
+      "RENDER_DEPLOY_HOOK_URL_TEST",
+      "RENDER_DEPLOY_HOOK_URL_UAT",
+      "RENDER_DEPLOY_HOOK_URL_MAIN",
+      "RENDER_HEALTHCHECK_URL_TEST",
+      "RENDER_HEALTHCHECK_URL_UAT",
+      "RENDER_HEALTHCHECK_URL_MAIN"
+    ],
+    "requiresVariables": [],
+    "setupUrl": "https://dashboard.render.com/"
+  }
+]

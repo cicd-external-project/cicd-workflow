@@ -64,8 +64,8 @@ permissions:
 
 jobs:
   call-backend-orchestrator:
-    # Pin to a release tag — update when upgrading central-workflow
-    uses: ImplementSprint/central-workflow/.github/workflows/master-pipeline-be.yml@v1
+    # Pin to a release tag; update when upgrading cicd-workflow.
+    uses: Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-be.yml@v1
     with:
       pipeline_mode: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pipeline_mode || 'auto' }}
       enable_security_scan: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.enable_security_scan || 'true') || true }}

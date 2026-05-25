@@ -1,0 +1,35 @@
+{
+  "project": {
+    "name": "student-portal",
+    "visibility": "private",
+    "repoOwner": "acme-school"
+  },
+  "stack": {
+    "type": "frontend",
+    "framework": "nextjs",
+    "nodeVersion": "22",
+    "packageManager": "npm"
+  },
+  "pipeline": {
+    "branches": ["test", "uat", "main"],
+    "quality": {
+      "lint": true,
+      "typecheck": true,
+      "unitTests": true,
+      "coverageThreshold": 80,
+      "build": true
+    },
+    "advanced": {
+      "playwright": false,
+      "k6": false,
+      "sonarcloud": false,
+      "docker": false,
+      "autoPromotion": false,
+      "productionGate": false
+    },
+    "deployment": {
+      "provider": "none",
+      "enabled": false
+    }
+  }
+}

@@ -1,11 +1,11 @@
 # Central Workflow Template Setup Docs
 
-This folder documents how to set up each ImplementSprint template with the central reusable pipelines.
+This folder documents how to set up each template with the central reusable pipelines.
 
 Scope covered:
 - Local templates in this workspace
 - Central workflow caller templates
-- Remote-sourced templates from ImplementSprint org (default branch, verified 2026-04-10)
+- Legacy remote-sourced templates from the original ImplementSprint org are historical references; generated customer workflows should use `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow@v1`.
 
 ## Canonical Repository Variable Names
 

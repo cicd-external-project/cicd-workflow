@@ -19,11 +19,11 @@ This layer turns the reusable stack workflows into a user-facing product flow.
    - narrows to the changed service when possible
    - infers the package manager
    - infers lint, typecheck, build, test, Playwright, and k6 defaults where they are safely detectable
-5. The caller workflow invokes the matching reusable stack workflow from `ImplementSprint/central-workflow`.
+5. The caller workflow invokes the matching reusable stack workflow from `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow`.
 
 ## Current assumptions
 
-- Central workflow repository reference is currently `ImplementSprint/central-workflow@main`
+- Central workflow repository reference is currently `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow@v1`
 - Branch baseline is `test`, `uat`, and `main`
 - Optional deployment and approval wiring can be driven by repository variables such as:
   - `UAT_BASE_URL`
@@ -43,4 +43,4 @@ This layer turns the reusable stack workflows into a user-facing product flow.
 
 ## Recommended release step
 
-- Replace `@main` refs in the templates with a version tag before publishing broadly.
+- Keep generated customer workflow refs pinned to a stable version tag before publishing broadly.
