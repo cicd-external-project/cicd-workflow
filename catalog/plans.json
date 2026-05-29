@@ -1,0 +1,87 @@
+[
+  {
+    "key": "free",
+    "label": "Free Trial",
+    "rank": 0,
+    "limits": {
+      "maxProjects": 1,
+      "privateRepos": false,
+      "teamMembers": 1
+    },
+    "features": {
+      "stacks": ["nextjs"],
+      "actions": ["quality.lint", "quality.typecheck", "quality.unit_tests", "quality.build"],
+      "autoPromotion": false,
+      "branchProtection": false
+    }
+  },
+  {
+    "key": "starter",
+    "label": "Starter",
+    "rank": 1,
+    "limits": {
+      "maxProjects": 3,
+      "privateRepos": true,
+      "teamMembers": 1
+    },
+    "features": {
+      "stacks": ["nextjs", "nestjs"],
+      "actions": ["quality.lint", "quality.typecheck", "quality.unit_tests", "quality.build"],
+      "autoPromotion": false,
+      "branchProtection": false
+    }
+  },
+  {
+    "key": "pro",
+    "label": "Pro",
+    "rank": 2,
+    "limits": {
+      "maxProjects": 10,
+      "privateRepos": true,
+      "teamMembers": 5
+    },
+    "features": {
+      "stacks": ["nextjs", "nestjs"],
+      "actions": [
+        "quality.lint",
+        "quality.typecheck",
+        "quality.unit_tests",
+        "quality.build",
+        "testing.playwright",
+        "testing.k6",
+        "deploy.vercel",
+        "deploy.render",
+        "promotion.auto_pr"
+      ],
+      "autoPromotion": true,
+      "branchProtection": false
+    }
+  },
+  {
+    "key": "team",
+    "label": "Team",
+    "rank": 3,
+    "limits": {
+      "maxProjects": 25,
+      "privateRepos": true,
+      "teamMembers": 25
+    },
+    "features": {
+      "stacks": ["nextjs", "nestjs"],
+      "actions": [
+        "quality.lint",
+        "quality.typecheck",
+        "quality.unit_tests",
+        "quality.build",
+        "testing.playwright",
+        "testing.k6",
+        "deploy.vercel",
+        "deploy.render",
+        "promotion.auto_pr",
+        "governance.production_gate"
+      ],
+      "autoPromotion": true,
+      "branchProtection": true
+    }
+  }
+]

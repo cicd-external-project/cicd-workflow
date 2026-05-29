@@ -1,0 +1,19 @@
+{
+  "currentStable": "v1",
+  "repository": "Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow",
+  "workflows": {
+    "frontendMaster": ".github/workflows/master-pipeline-fe.yml",
+    "backendMaster": ".github/workflows/master-pipeline-be.yml",
+    "mobileMaster": ".github/workflows/master-pipeline-mobile.yml",
+    "kotlinMaster": ".github/workflows/master-pipeline-kotlin.yml",
+    "nextjsService": ".github/workflows/service-nextjs.yml",
+    "nestjsService": ".github/workflows/service-nestjs.yml",
+    "nodeService": ".github/workflows/service-node.yml",
+    "reactService": ".github/workflows/service-react.yml",
+    "reactNativeService": ".github/workflows/service-react-native.yml",
+    "expoService": ".github/workflows/service-expo.yml"
+  },
+  "actions": {
+    "discoverService": ".github/actions/discover-service"
+  }
+}

@@ -4,7 +4,7 @@ Template repository:
 - `ImplementSprint/template-repo-mobile-single`
 
 Current caller workflow ref (documented exactly):
-- `ImplementSprint/central-workflow/.github/workflows/master-pipeline-mobile.yml@maestro`
+- `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-mobile.yml@v1`
 
 ## Required Branches
 

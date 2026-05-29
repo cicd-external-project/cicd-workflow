@@ -1,0 +1,109 @@
+[
+  {
+    "key": "quality.lint",
+    "label": "Lint",
+    "category": "quality",
+    "plan": "free",
+    "supportedStacks": ["nextjs", "nestjs"],
+    "requiresSecrets": [],
+    "requiresVariables": [],
+    "generatedFiles": []
+  },
+  {
+    "key": "quality.typecheck",
+    "label": "TypeScript Typecheck",
+    "category": "quality",
+    "plan": "free",
+    "supportedStacks": ["nextjs", "nestjs"],
+    "requiresSecrets": [],
+    "requiresVariables": [],
+    "generatedFiles": []
+  },
+  {
+    "key": "quality.unit_tests",
+    "label": "Unit Tests",
+    "category": "quality",
+    "plan": "free",
+    "supportedStacks": ["nextjs", "nestjs"],
+    "requiresSecrets": [],
+    "requiresVariables": [],
+    "generatedFiles": ["tests/unit/sanity.test.ts"]
+  },
+  {
+    "key": "quality.build",
+    "label": "Build",
+    "category": "quality",
+    "plan": "free",
+    "supportedStacks": ["nextjs", "nestjs"],
+    "requiresSecrets": [],
+    "requiresVariables": [],
+    "generatedFiles": []
+  },
+  {
+    "key": "testing.playwright",
+    "label": "Playwright E2E",
+    "category": "testing",
+    "plan": "pro",
+    "supportedStacks": ["nextjs"],
+    "requiresSecrets": [],
+    "requiresVariables": ["E2E_BASE_URL"],
+    "generatedFiles": ["tests/e2e/playwright-e2e.ts"]
+  },
+  {
+    "key": "testing.k6",
+    "label": "Grafana k6",
+    "category": "testing",
+    "plan": "pro",
+    "supportedStacks": ["nextjs", "nestjs"],
+    "requiresSecrets": ["K6_CLOUD_TOKEN", "K6_CLOUD_PROJECT_ID"],
+    "requiresVariables": ["K6_BASE_URL"],
+    "generatedFiles": ["tests/performance/k6-smoke.js"]
+  },
+  {
+    "key": "deploy.vercel",
+    "label": "Vercel Deploy",
+    "category": "deployment",
+    "plan": "pro",
+    "supportedStacks": ["nextjs"],
+    "requiresSecrets": ["VERCEL_TOKEN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID"],
+    "requiresVariables": [],
+    "generatedFiles": []
+  },
+  {
+    "key": "deploy.render",
+    "label": "Render Deploy",
+    "category": "deployment",
+    "plan": "pro",
+    "supportedStacks": ["nestjs"],
+    "requiresSecrets": [
+      "RENDER_DEPLOY_HOOK_URL_TEST",
+      "RENDER_DEPLOY_HOOK_URL_UAT",
+      "RENDER_DEPLOY_HOOK_URL_MAIN",
+      "RENDER_HEALTHCHECK_URL_TEST",
+      "RENDER_HEALTHCHECK_URL_UAT",
+      "RENDER_HEALTHCHECK_URL_MAIN"
+    ],
+    "requiresVariables": [],
+    "generatedFiles": []
+  },
+  {
+    "key": "promotion.auto_pr",
+    "label": "Auto-promotion PRs",
+    "category": "promotion",
+    "plan": "pro",
+    "supportedStacks": ["nextjs", "nestjs"],
+    "requiresSecrets": ["GH_PR_TOKEN"],
+    "requiresVariables": [],
+    "generatedFiles": []
+  },
+  {
+    "key": "governance.production_gate",
+    "label": "Production Approval Gate",
+    "category": "governance",
+    "plan": "team",
+    "supportedStacks": ["nextjs", "nestjs"],
+    "requiresSecrets": [],
+    "requiresVariables": ["REQUIRE_PRODUCTION_APPROVAL"],
+    "generatedFiles": []
+  }
+]

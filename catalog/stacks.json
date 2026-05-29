@@ -1,0 +1,41 @@
+[
+  {
+    "key": "nextjs",
+    "label": "Next.js",
+    "kind": "frontend",
+    "runtime": "node",
+    "defaultNodeVersion": "22",
+    "supportedPackageManagers": ["npm"],
+    "templateRepository": "Tone-Lloyd-Sir-Catubag-CICD/cicd-template-nextjs",
+    "masterWorkflow": "frontendMaster",
+    "serviceWorkflow": "nextjsService",
+    "defaultBuildOutput": ".next",
+    "defaultCommands": {
+      "install": "npm ci",
+      "lint": "npm run lint",
+      "typecheck": "npx tsc --noEmit",
+      "unit": "npm test -- --runInBand",
+      "build": "npm run build"
+    }
+  },
+  {
+    "key": "nestjs",
+    "label": "NestJS",
+    "kind": "backend",
+    "runtime": "node",
+    "defaultNodeVersion": "22",
+    "supportedPackageManagers": ["npm"],
+    "templateRepository": "Tone-Lloyd-Sir-Catubag-CICD/cicd-template-nestjs",
+    "masterWorkflow": "backendMaster",
+    "serviceWorkflow": "nestjsService",
+    "defaultBuildOutput": "dist",
+    "defaultCommands": {
+      "install": "npm ci",
+      "lint": "npm run lint",
+      "typecheck": "npm run typecheck",
+      "unit": "npm test -- --runInBand",
+      "e2e": "npm run test:e2e",
+      "build": "npm run build"
+    }
+  }
+]

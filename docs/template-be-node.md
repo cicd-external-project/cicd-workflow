@@ -4,7 +4,7 @@ Template repository:
 - `ImplementSprint/template-repo-be-node`
 
 Current caller workflow ref (documented exactly):
-- `ImplementSprint/central-workflow/.github/workflows/master-pipeline-be.yml@main`
+- `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-be.yml@v1`
 
 ## Required Branches
 

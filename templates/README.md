@@ -1,6 +1,6 @@
 # Templates
 
-This folder contains reusable starter templates used by ImplementSprint repositories.
+This folder contains reusable starter templates used by customer repositories.
 
 ## Replit Nix Template
 

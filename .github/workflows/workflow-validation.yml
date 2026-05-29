@@ -58,7 +58,7 @@ jobs:
 
           CALLER="templates/mobile-pipeline-caller.yml"
 
-          assert_contains "$CALLER" "uses: ImplementSprint/central-workflow/.github/workflows/master-pipeline-mobile.yml@main"
+          assert_contains "$CALLER" "uses: Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-mobile.yml@v1"
           assert_contains "$CALLER" "pipeline_mode"
           assert_contains "$CALLER" "enable_lint"
           assert_contains "$CALLER" "enable_security_scan"
@@ -206,7 +206,7 @@ jobs:
 
           CALLER="templates/be-pipeline-caller.yml"
 
-          assert_contains "$CALLER" "uses: ImplementSprint/central-workflow/.github/workflows/master-pipeline-be.yml@v1"
+          assert_contains "$CALLER" "uses: Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-be.yml@v1"
           assert_contains "$CALLER" "pipeline_mode"
           assert_contains "$CALLER" "enable_security_scan"
           assert_contains "$CALLER" "enable_sonar"
@@ -326,16 +326,16 @@ jobs:
             workflow-templates/expo-service-pipeline.yml
           do
             test -f "$file" || { echo "❌ Missing workflow template: $file"; exit 1; }
-            assert_contains "$file" "ImplementSprint/central-workflow/.github/actions/discover-service@main"
+            assert_contains "$file" "Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/actions/discover-service@v1"
             assert_contains "$file" "fetch-depth: 0"
           done
 
-          assert_contains workflow-templates/nodejs-service-pipeline.yml "ImplementSprint/central-workflow/.github/workflows/service-node.yml@main"
-          assert_contains workflow-templates/nest-service-pipeline.yml "ImplementSprint/central-workflow/.github/workflows/service-nestjs.yml@main"
-          assert_contains workflow-templates/react-service-pipeline.yml "ImplementSprint/central-workflow/.github/workflows/service-react.yml@main"
-          assert_contains workflow-templates/nextjs-service-pipeline.yml "ImplementSprint/central-workflow/.github/workflows/service-nextjs.yml@main"
-          assert_contains workflow-templates/react-native-service-pipeline.yml "ImplementSprint/central-workflow/.github/workflows/service-react-native.yml@main"
-          assert_contains workflow-templates/expo-service-pipeline.yml "ImplementSprint/central-workflow/.github/workflows/service-expo.yml@main"
+          assert_contains workflow-templates/nodejs-service-pipeline.yml "Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/service-node.yml@v1"
+          assert_contains workflow-templates/nest-service-pipeline.yml "Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/service-nestjs.yml@v1"
+          assert_contains workflow-templates/react-service-pipeline.yml "Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/service-react.yml@v1"
+          assert_contains workflow-templates/nextjs-service-pipeline.yml "Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/service-nextjs.yml@v1"
+          assert_contains workflow-templates/react-native-service-pipeline.yml "Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/service-react-native.yml@v1"
+          assert_contains workflow-templates/expo-service-pipeline.yml "Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/service-expo.yml@v1"
 
           test -f workflow-templates/README.md || { echo "❌ Missing workflow-templates/README.md"; exit 1; }
           test -f .github/actions/discover-service/action.yml || { echo "❌ Missing discovery action metadata"; exit 1; }

@@ -4,7 +4,7 @@ Template repository:
 - `ImplementSprint/template-repo-fe-multi`
 
 Current caller workflow ref (documented exactly):
-- `ImplementSprint/central-workflow/.github/workflows/master-pipeline-fe.yml@main`
+- `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-fe.yml@v1`
 
 ## Required Branches
 

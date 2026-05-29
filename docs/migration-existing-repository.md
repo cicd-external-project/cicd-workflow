@@ -1,6 +1,6 @@
 # Migrating a Repository Without Workflows to Central Workflow
 
-This runbook is for teams whose repository does not have workflow files yet and needs first-time CI/CD onboarding through `ImplementSprint/central-workflow` callers.
+This runbook is for teams whose repository does not have workflow files yet and needs first-time CI/CD onboarding through `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow` callers.
 
 ## Scope
 
@@ -61,9 +61,9 @@ In your migration branch:
 
 Caller template sources:
 
-- `central-workflow/templates/fe-pipeline-caller.yml`
-- `central-workflow/templates/be-pipeline-caller.yml`
-- `central-workflow/templates/mobile-pipeline-caller.yml`
+- `cicd-workflow/templates/fe-pipeline-caller.yml`
+- `cicd-workflow/templates/be-pipeline-caller.yml`
+- `cicd-workflow/templates/mobile-pipeline-caller.yml`
 
 ## Phase 3: Safe First Validation Run (`workflow_dispatch`)
 
