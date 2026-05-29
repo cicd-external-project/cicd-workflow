@@ -114,3 +114,4 @@ graph TD
 
 ### Action 4: Automated E2E Pipeline Walkthrough
 - Execute a complete path using Mock Stripe Checkout -> Onboarding -> Repository Generation -> Verify commit is pushed on a test GitHub installation.
+
