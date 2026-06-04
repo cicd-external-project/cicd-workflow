@@ -1,0 +1,174 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# quality-gate.yml  —  Reusable workflow: lint + typecheck + test + build
+#
+# Placement (central-workflow repo):
+#   ImplementSprint/central-workflow/.github/workflows/quality-gate.yml
+#
+# This workflow runs on every push and PR. It is the single source of truth
+# for the mandatory quality checks required before any deployment or promotion.
+#
+# Contract (workflow_call):
+#   Inputs:
+#     service_name        string  required  — display label (e.g. "cicd-workflow-be")
+#     node_version        string  optional  — Node.js version (default 22)
+#     working_directory   string  optional  — subdirectory if repo is a monorepo (default ".")
+#     coverage_threshold  number  optional  — minimum line coverage % (default 80)
+#     run_build           bool    optional  — whether to run npm run build (default true)
+#   No secrets required.
+#
+# Caller-side permission requirement:
+#   contents: read   — for checkout
+#   checks: write    — for annotating test failures inline (optional but useful)
+# ─────────────────────────────────────────────────────────────────────────────
+name: "Quality Gate (reusable)"
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: "Service display name for step labels"
+        type: string
+        required: true
+      node_version:
+        description: "Node.js version to use"
+        type: string
+        required: false
+        default: "22"
+      working_directory:
+        description: "Working directory (default repo root)"
+        type: string
+        required: false
+        default: "."
+      coverage_threshold:
+        description: "Minimum line coverage percentage (0–100)"
+        type: number
+        required: false
+        default: 80
+      run_build:
+        description: "Run npm run build as a final build-check step"
+        type: boolean
+        required: false
+        default: true
+    outputs:
+      coverage_pct:
+        description: "Actual line coverage percentage from this run"
+        value: ${{ jobs.quality.outputs.coverage_pct }}
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  quality:
+    name: "Quality Gate — ${{ inputs.service_name }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    outputs:
+      coverage_pct: ${{ steps.coverage-check.outputs.coverage_pct }}
+
+    steps:
+      # ── Setup ────────────────────────────────────────────────────────────────
+      - name: "Checkout code"
+        uses: actions/checkout@v4
+
+      - name: "Setup Node.js ${{ inputs.node_version }}"
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: "npm"
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: "Install dependencies"
+        run: npm ci
+
+      # ── Lint ────────────────────────────────────────────────────────────────
+      - name: "Lint (ESLint — zero errors required)"
+        run: npm run lint
+
+      # ── TypeScript ──────────────────────────────────────────────────────────
+      - name: "TypeScript check (tsc --noEmit)"
+        run: npm run typecheck
+
+      # ── Unit tests with coverage ─────────────────────────────────────────────
+      - name: "Unit tests with coverage"
+        run: npm run test:cov -- --forceExit
+        env:
+          CI: "true"
+
+      # ── Coverage threshold enforcement ───────────────────────────────────────
+      - name: "Enforce coverage threshold (${{ inputs.coverage_threshold }}%)"
+        id: coverage-check
+        run: |
+          SUMMARY_FILE="coverage/coverage-summary.json"
+
+          if [[ ! -f "$SUMMARY_FILE" ]]; then
+            echo "ERROR: coverage/coverage-summary.json not found."
+            echo "Ensure jest config includes 'json-summary' in coverageReporters."
+            exit 1
+          fi
+
+          # Extract the total line coverage percentage
+          LINE_PCT=$(node -e "
+            const s = require('./$SUMMARY_FILE');
+            const t = s.total;
+            const pct = t.lines ? t.lines.pct : null;
+            if (pct === null) { console.error('lines.pct not found in summary'); process.exit(1); }
+            console.log(pct);
+          ")
+
+          THRESHOLD=${{ inputs.coverage_threshold }}
+
+          echo "Line coverage: ${LINE_PCT}%  (threshold: ${THRESHOLD}%)"
+          echo "coverage_pct=${LINE_PCT}" >> "$GITHUB_OUTPUT"
+
+          # bc-based float comparison
+          PASS=$(echo "$LINE_PCT >= $THRESHOLD" | bc -l)
+          if [[ "$PASS" != "1" ]]; then
+            echo "FAIL: coverage ${LINE_PCT}% is below the required ${THRESHOLD}%"
+            exit 1
+          fi
+
+          echo "Coverage check passed."
+
+      # ── Upload coverage artifacts ─────────────────────────────────────────────
+      - name: "Upload coverage artifacts"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ inputs.service_name }}-${{ github.sha }}
+          path: |
+            ${{ inputs.working_directory }}/coverage/coverage-summary.json
+            ${{ inputs.working_directory }}/coverage/lcov.info
+          retention-days: 14
+          if-no-files-found: warn
+
+      # ── Upload JUnit test results ─────────────────────────────────────────────
+      - name: "Upload test results (JUnit)"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.service_name }}-${{ github.sha }}
+          path: ${{ inputs.working_directory }}/test-results/junit.xml
+          retention-days: 14
+          if-no-files-found: warn
+
+      # ── Build ────────────────────────────────────────────────────────────────
+      - name: "Build check (npm run build)"
+        if: inputs.run_build == true
+        run: npm run build
+
+      # ── Step summary ─────────────────────────────────────────────────────────
+      - name: "Write job summary"
+        if: always()
+        run: |
+          echo "### Quality Gate — ${{ inputs.service_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Lint | ${{ steps.coverage-check.outcome != 'failure' && 'Passed' || 'See logs' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| TypeScript | See logs |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Unit tests | See logs |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Coverage | ${{ steps.coverage-check.outputs.coverage_pct }}% (threshold ${{ inputs.coverage_threshold }}%) |" >> "$GITHUB_STEP_SUMMARY"

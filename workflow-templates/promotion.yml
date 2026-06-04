@@ -1,0 +1,185 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# promotion.yml  —  Reusable workflow: auto-create next-environment PR
+#
+# Placement (central-workflow repo):
+#   ImplementSprint/central-workflow/.github/workflows/promotion.yml
+#
+# Contract (workflow_call):
+#   Inputs:
+#     source_branch    string  required  — branch being promoted FROM (e.g. "test")
+#     target_branch    string  required  — branch being promoted TO   (e.g. "uat")
+#     service_name     string  required  — display label in PR title  (e.g. "cicd-workflow-be")
+#     dry_run          bool    optional  — print the PR body but do not create the PR (default false)
+#   Secrets:
+#     gh_pr_token      required  — PAT with repo + pull_request scopes
+#                                  (GITHUB_TOKEN cannot open PRs that trigger other workflows)
+#
+# Caller-side permission requirement:
+#   pull-requests: write  — declared here; caller ceiling must include this scope
+#   contents: read        — for the diff check step
+# ─────────────────────────────────────────────────────────────────────────────
+name: "Auto-Promote PR (reusable)"
+
+on:
+  workflow_call:
+    inputs:
+      source_branch:
+        description: "Branch to promote FROM (e.g. test)"
+        type: string
+        required: true
+      target_branch:
+        description: "Branch to promote TO (e.g. uat)"
+        type: string
+        required: true
+      service_name:
+        description: "Service display name used in the PR title"
+        type: string
+        required: true
+      dry_run:
+        description: "Print PR body without creating the PR (preview mode)"
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      gh_pr_token:
+        description: "GitHub PAT with repo + pull_request scopes"
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  promote:
+    name: "Promote ${{ inputs.source_branch }} → ${{ inputs.target_branch }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # ── 1. Checkout (need full history for diff check) ───────────────────────
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.gh_pr_token }}
+
+      # ── 2. Check whether there is anything to promote ────────────────────────
+      - name: "Verify diff between source and target"
+        id: diff-check
+        run: |
+          git fetch origin ${{ inputs.source_branch }} ${{ inputs.target_branch }} --quiet
+
+          DIFF_COUNT=$(git rev-list \
+            origin/${{ inputs.target_branch }}..origin/${{ inputs.source_branch }} \
+            --count)
+
+          echo "Commits ahead of ${{ inputs.target_branch }}: $DIFF_COUNT"
+          echo "diff_count=$DIFF_COUNT" >> "$GITHUB_OUTPUT"
+
+          if [[ "$DIFF_COUNT" -eq 0 ]]; then
+            echo "Nothing to promote — ${{ inputs.source_branch }} is not ahead of ${{ inputs.target_branch }}."
+          fi
+
+      # ── 3. Compute PR metadata ───────────────────────────────────────────────
+      - name: "Compute PR title and body"
+        id: pr-meta
+        if: steps.diff-check.outputs.diff_count != '0'
+        run: |
+          SHORT_SHA=$(git rev-parse --short origin/${{ inputs.source_branch }})
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          TITLE="chore(release): promote ${{ inputs.service_name }} ${{ inputs.source_branch }} → ${{ inputs.target_branch }} @ ${SHORT_SHA}"
+
+          # Collect commit subjects in the range
+          COMMIT_LOG=$(git log \
+            origin/${{ inputs.target_branch }}..origin/${{ inputs.source_branch }} \
+            --pretty=format:"- %s (%h)" \
+            | head -30)
+
+          BODY=$(cat <<PREOF
+          ## Automated Promotion: \`${{ inputs.source_branch }}\` → \`${{ inputs.target_branch }}\`
+
+          | Field | Value |
+          |-------|-------|
+          | Service | \`${{ inputs.service_name }}\` |
+          | Source | \`${{ inputs.source_branch }}\` |
+          | Target | \`${{ inputs.target_branch }}\` |
+          | HEAD SHA | \`${SHORT_SHA}\` |
+          | Triggered by | [Pipeline run](${RUN_URL}) |
+
+          ### Commits in this promotion
+
+          ${COMMIT_LOG}
+
+          ---
+          _This PR was created automatically by the release pipeline._
+          _Merge only after all required status checks pass on \`${{ inputs.source_branch }}\`._
+          PREOF
+          )
+
+          # Store multi-line values safely
+          echo "pr_title=$TITLE" >> "$GITHUB_OUTPUT"
+          {
+            echo 'pr_body<<HEREDOC'
+            echo "$BODY"
+            echo 'HEREDOC'
+          } >> "$GITHUB_OUTPUT"
+
+      # ── 4. Dry-run preview ───────────────────────────────────────────────────
+      - name: "Dry-run preview — print PR body"
+        if: |
+          inputs.dry_run == true &&
+          steps.diff-check.outputs.diff_count != '0'
+        run: |
+          echo "=== DRY RUN — PR would be created with the following content ==="
+          echo ""
+          echo "Title: ${{ steps.pr-meta.outputs.pr_title }}"
+          echo ""
+          echo "${{ steps.pr-meta.outputs.pr_body }}"
+
+      # ── 5. Create the PR (or skip if already open / dry run) ─────────────────
+      - name: "Create promotion PR (or skip if already open)"
+        if: |
+          inputs.dry_run == false &&
+          steps.diff-check.outputs.diff_count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.gh_pr_token }}
+        run: |
+          # Idempotency: skip if an open PR already targets this pair
+          EXISTING_PR=$(gh pr list \
+            --base "${{ inputs.target_branch }}" \
+            --head "${{ inputs.source_branch }}" \
+            --state open \
+            --json number \
+            --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "Promotion PR #${EXISTING_PR} already open. Skipping creation."
+            echo "PR URL: ${{ github.server_url }}/${{ github.repository }}/pull/${EXISTING_PR}"
+            exit 0
+          fi
+
+          PR_URL=$(gh pr create \
+            --base "${{ inputs.target_branch }}" \
+            --head "${{ inputs.source_branch }}" \
+            --title "${{ steps.pr-meta.outputs.pr_title }}" \
+            --body "${{ steps.pr-meta.outputs.pr_body }}")
+
+          echo "Promotion PR created: $PR_URL"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      # ── 6. Summary ───────────────────────────────────────────────────────────
+      - name: "Summarize promotion step"
+        if: always()
+        run: |
+          DIFF="${{ steps.diff-check.outputs.diff_count }}"
+          if [[ "$DIFF" == "0" ]]; then
+            echo "### Promotion skipped — no diff" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`${{ inputs.source_branch }}\` is up to date with \`${{ inputs.target_branch }}\`." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            echo "### Promotion dry-run complete" >> "$GITHUB_STEP_SUMMARY"
+            echo "PR body printed to logs. No PR was created." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Promotion PR created" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`${{ inputs.source_branch }}\` → \`${{ inputs.target_branch }}\` for \`${{ inputs.service_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          fi

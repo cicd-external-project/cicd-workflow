@@ -1,15 +1,39 @@
-# ──────────────────────────────────────────────────────────────
-# FE Pipeline Caller (unified)
-# Copy this file into the target repo at:
-#   .github/workflows/master-pipeline-fe.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# TEMPLATE: fe-pipeline-caller.yml
 #
-# Works for both single-system and multi-system FE repositories.
-# The pipeline_mode input controls which SYSTEMS_JSON variable
-# is read (auto = picks multi if available, else single).
+# Copy this file into the target frontend repo at:
+#   .github/workflows/fe-pipeline-caller.yml   (or any name you prefer)
 #
-# Required repo secret:
-# - GH_PR_TOKEN (used for auto-promotion PRs and Vercel deploy PR comments)
-# ──────────────────────────────────────────────────────────────
+# Calls the unified frontend orchestrator in cicd-external-project/cicd-workflow.
+# The orchestrator deploys to Vercel (NOT Render) via vercel-deploy.yml.
+#
+# Triggers:
+#   push         → test, uat, main   (full pipeline: quality + security + deploy + promote)
+#   pull_request → test, uat, main   (quality gate + preview Vercel deploy for PR review)
+#   workflow_dispatch                 (manual with override inputs)
+#
+# Required repository variables (set on the caller repo):
+#   FE_SINGLE_SYSTEMS_JSON — describes this frontend, e.g.:
+#     {
+#       "name": "my-fe",
+#       "dir": ".",
+#       "image": "ghcr.io/cicd-external-project/my-fe",
+#       "vercel_project_secret": "VERCEL_PROJECT_ID"
+#     }
+#   The "vercel_project_secret" field is the NAME of the secret that holds the
+#   Vercel project ID. The orchestrator resolves it via secrets[system.vercel_project_secret].
+#   Or for multi-system repos: FE_MULTI_SYSTEMS_JSON (JSON array of the above).
+#
+# Required secrets:
+#   GH_PR_TOKEN       — GitHub PAT for promotion PRs, release tags, and Vercel PR comments
+#   VERCEL_TOKEN      — Vercel API token (shared across org)
+#   VERCEL_ORG_ID     — Vercel org/team ID
+#   VERCEL_PROJECT_ID — Vercel project ID (referenced by vercel_project_secret in systems JSON)
+#
+# Optional secrets (for SonarCloud, Playwright cloud, k6):
+#   SONAR_TOKEN, SONAR_ORGANIZATION, SONAR_PROJECT_KEY
+#   K6_CLOUD_TOKEN
+# ─────────────────────────────────────────────────────────────────────────────
 name: "Master Pipeline — FE"
 
 on:
@@ -70,7 +94,7 @@ on:
         default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -81,8 +105,10 @@ permissions:
 
 jobs:
   call-orchestrator:
-    # Pin to a release tag; update when upgrading cicd-workflow.
-    uses: Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-fe.yml@v1
+    # Pin to a release tag once cicd-external-project/cicd-workflow publishes one.
+    # Use @main until then.
+    # The orchestrator uses vercel-deploy.yml internally — NOT render-deploy.yml.
+    uses: cicd-external-project/cicd-workflow/.github/workflows/master-pipeline-fe.yml@main
     with:
       pipeline_mode: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pipeline_mode || 'auto' }}
       enable_playwright: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.enable_playwright || 'true') || true }}

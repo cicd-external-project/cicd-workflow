@@ -1,0 +1,152 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# render-deploy.yml  —  Reusable workflow: trigger Render deploy + health poll
+#
+# Placement (central-workflow repo):
+#   ImplementSprint/central-workflow/.github/workflows/render-deploy.yml
+#
+# Contract (workflow_call):
+#   Inputs:
+#     environment        string  required  — label used in step names (test|uat|production)
+#     healthcheck_url    string  required  — full HTTPS URL to poll after deploy (e.g. /api/v1/health)
+#     poll_interval_sec  number  optional  — seconds between health polls (default 15)
+#     poll_max_attempts  number  optional  — max poll attempts before timeout (default 20)
+#   Secrets:
+#     render_deploy_hook_url  required  — Render webhook URL for this service+environment
+#
+# Caller-side permission requirement:
+#   No additional permissions needed beyond the caller's defaults.
+#   This workflow does not write to the repo; it only calls external URLs.
+# ─────────────────────────────────────────────────────────────────────────────
+name: "Render Deploy (reusable)"
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment label (test | uat | production)"
+        type: string
+        required: true
+      healthcheck_url:
+        description: "Health check URL to poll after deploy triggers (must return HTTP 200)"
+        type: string
+        required: true
+      poll_interval_sec:
+        description: "Seconds to wait between health check polls"
+        type: number
+        required: false
+        default: 15
+      poll_max_attempts:
+        description: "Maximum number of health check poll attempts before failing"
+        type: number
+        required: false
+        default: 20
+    secrets:
+      render_deploy_hook_url:
+        description: "Render deploy hook URL for this service + environment"
+        required: true
+
+# No repo writes — minimal permissions
+permissions:
+  contents: none
+
+jobs:
+  deploy:
+    name: "Deploy to Render (${{ inputs.environment }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+
+    steps:
+      # ── 1. Trigger ──────────────────────────────────────────────────────────
+      - name: "Trigger Render deploy hook"
+        env:
+          HOOK_URL: ${{ secrets.render_deploy_hook_url }}
+        run: |
+          echo "Triggering Render deploy for environment: ${{ inputs.environment }}"
+
+          HTTP_STATUS=$(curl \
+            --silent \
+            --output /dev/null \
+            --write-out "%{http_code}" \
+            --max-time 30 \
+            --retry 3 \
+            --retry-delay 5 \
+            -X POST \
+            "$HOOK_URL")
+
+          echo "Render hook response status: $HTTP_STATUS"
+
+          if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
+            echo "ERROR: Render deploy hook returned unexpected status $HTTP_STATUS"
+            exit 1
+          fi
+
+          echo "Deploy triggered successfully."
+
+      # ── 2. Wait for Render to begin booting ─────────────────────────────────
+      - name: "Wait for Render boot window"
+        run: |
+          echo "Waiting 30 seconds for Render to begin the deployment..."
+          sleep 30
+
+      # ── 3. Poll health check ─────────────────────────────────────────────────
+      - name: "Poll health check until healthy or timeout"
+        env:
+          HEALTHCHECK_URL: ${{ inputs.healthcheck_url }}
+          POLL_INTERVAL: ${{ inputs.poll_interval_sec }}
+          MAX_ATTEMPTS: ${{ inputs.poll_max_attempts }}
+        run: |
+          echo "Health check URL: $HEALTHCHECK_URL"
+          echo "Polling every ${POLL_INTERVAL}s, up to ${MAX_ATTEMPTS} attempts"
+          echo ""
+
+          ATTEMPT=0
+
+          until [[ $ATTEMPT -ge $MAX_ATTEMPTS ]]; do
+            ATTEMPT=$(( ATTEMPT + 1 ))
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS} — $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+            HTTP_STATUS=$(curl \
+              --silent \
+              --output /dev/null \
+              --write-out "%{http_code}" \
+              --max-time 10 \
+              --location \
+              "$HEALTHCHECK_URL" || echo "000")
+
+            echo "  HTTP status: $HTTP_STATUS"
+
+            if [[ "$HTTP_STATUS" == "200" ]]; then
+              echo ""
+              echo "Service is healthy after ${ATTEMPT} attempt(s)."
+              exit 0
+            fi
+
+            echo "  Not healthy yet. Waiting ${POLL_INTERVAL}s..."
+            sleep "$POLL_INTERVAL"
+          done
+
+          echo ""
+          echo "ERROR: Service did not become healthy after ${MAX_ATTEMPTS} attempts."
+          echo "       Last status: $HTTP_STATUS"
+          echo "       URL: $HEALTHCHECK_URL"
+          exit 1
+
+      # ── 4. Post deployment summary ───────────────────────────────────────────
+      - name: "Summarize deployment"
+        if: always()
+        run: |
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "### Render Deploy — ${{ inputs.environment }} PASSED" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Environment | \`${{ inputs.environment }}\` |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Health check | ${{ inputs.healthcheck_url }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Status | Healthy |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Render Deploy — ${{ inputs.environment }} FAILED" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Health check timed out or deploy hook rejected." >> "$GITHUB_STEP_SUMMARY"
+            echo "Check the Render dashboard for deploy logs." >> "$GITHUB_STEP_SUMMARY"
+          fi

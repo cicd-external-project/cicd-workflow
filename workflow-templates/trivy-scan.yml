@@ -1,0 +1,159 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# trivy-scan.yml  —  Reusable workflow: Trivy filesystem security scan
+#
+# Placement (central-workflow repo):
+#   ImplementSprint/central-workflow/.github/workflows/trivy-scan.yml
+#
+# Scans the repository filesystem for HIGH and CRITICAL vulnerabilities.
+# Uploads results to GitHub Security tab as a SARIF report and fails the job
+# if any unfixed HIGH/CRITICAL finding is present (with .trivyignore support).
+#
+# Contract (workflow_call):
+#   Inputs:
+#     service_name       string  required  — display label (e.g. "cicd-workflow-be")
+#     working_directory  string  optional  — directory to scan (default ".")
+#     fail_on_severity   string  optional  — severities that fail the job (default "HIGH,CRITICAL")
+#   No secrets required — uses GITHUB_TOKEN for SARIF upload.
+#
+# Caller-side permission requirement:
+#   security-events: write  — to upload SARIF to GitHub Security tab
+#   contents: read          — for checkout
+# ─────────────────────────────────────────────────────────────────────────────
+name: "Trivy Security Scan (reusable)"
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: "Service display name for annotations"
+        type: string
+        required: true
+      working_directory:
+        description: "Directory to scan (repo root by default)"
+        type: string
+        required: false
+        default: "."
+      fail_on_severity:
+        description: "Comma-separated severity levels that fail the gate"
+        type: string
+        required: false
+        default: "HIGH,CRITICAL"
+    outputs:
+      vuln_count:
+        description: "Number of findings at or above the fail threshold"
+        value: ${{ jobs.scan.outputs.vuln_count }}
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    name: "Trivy Scan — ${{ inputs.service_name }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      vuln_count: ${{ steps.parse-results.outputs.vuln_count }}
+
+    steps:
+      # ── Setup ────────────────────────────────────────────────────────────────
+      - name: "Checkout code"
+        uses: actions/checkout@v4
+
+      # ── Trivy filesystem scan ─────────────────────────────────────────────────
+      # Produces two output formats:
+      #   1. SARIF  → uploaded to GitHub Security tab
+      #   2. JSON   → parsed locally to count findings and enforce the gate
+      - name: "Run Trivy filesystem scan (SARIF output)"
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: "fs"
+          scan-ref: ${{ inputs.working_directory }}
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: ${{ inputs.fail_on_severity }}
+          ignore-unfixed: true
+          # Respects .trivyignore in the scanned directory
+          trivyignores: "${{ inputs.working_directory }}/.trivyignore"
+          exit-code: "0"   # Do not exit here; we gate below after uploading SARIF
+
+      - name: "Run Trivy filesystem scan (JSON output for gating)"
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: "fs"
+          scan-ref: ${{ inputs.working_directory }}
+          format: "json"
+          output: "trivy-results.json"
+          severity: ${{ inputs.fail_on_severity }}
+          ignore-unfixed: true
+          trivyignores: "${{ inputs.working_directory }}/.trivyignore"
+          exit-code: "0"   # Gate is enforced in the next step
+
+      # ── Parse results and enforce gate ───────────────────────────────────────
+      - name: "Parse results and enforce severity gate"
+        id: parse-results
+        run: |
+          if [[ ! -f trivy-results.json ]]; then
+            echo "ERROR: trivy-results.json not found."
+            exit 1
+          fi
+
+          VULN_COUNT=$(node -e "
+            const r = require('./trivy-results.json');
+            let count = 0;
+            (r.Results || []).forEach(result => {
+              (result.Vulnerabilities || []).forEach(v => {
+                count++;
+              });
+            });
+            console.log(count);
+          ")
+
+          echo "Findings at or above '${{ inputs.fail_on_severity }}': ${VULN_COUNT}"
+          echo "vuln_count=${VULN_COUNT}" >> "$GITHUB_OUTPUT"
+
+          if [[ "$VULN_COUNT" -gt 0 ]]; then
+            echo ""
+            echo "SECURITY GATE FAILED: ${VULN_COUNT} unfixed ${{ inputs.fail_on_severity }} vulnerability/vulnerabilities found."
+            echo "Review the GitHub Security tab or the SARIF artifact for details."
+            echo "Add findings that are confirmed-not-reachable to .trivyignore with a comment."
+          fi
+
+      # ── Upload SARIF to GitHub Security tab ──────────────────────────────────
+      - name: "Upload SARIF to GitHub Security"
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "trivy-results.sarif"
+          category: "trivy-${{ inputs.service_name }}"
+
+      # ── Upload raw JSON artifact ──────────────────────────────────────────────
+      - name: "Upload Trivy JSON artifact"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ inputs.service_name }}-${{ github.sha }}
+          path: trivy-results.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      # ── Fail the job after SARIF upload ──────────────────────────────────────
+      - name: "Fail job if vulnerabilities found"
+        if: steps.parse-results.outputs.vuln_count != '0'
+        run: |
+          echo "Failing pipeline: ${{ steps.parse-results.outputs.vuln_count }} ${{ inputs.fail_on_severity }} finding(s)."
+          exit 1
+
+      # ── Summary ───────────────────────────────────────────────────────────────
+      - name: "Write security scan summary"
+        if: always()
+        run: |
+          COUNT="${{ steps.parse-results.outputs.vuln_count }}"
+          if [[ "$COUNT" == "0" || -z "$COUNT" ]]; then
+            echo "### Trivy Security Scan — PASSED" >> "$GITHUB_STEP_SUMMARY"
+            echo "No unfixed ${{ inputs.fail_on_severity }} vulnerabilities found in \`${{ inputs.service_name }}\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Trivy Security Scan — FAILED" >> "$GITHUB_STEP_SUMMARY"
+            echo "${COUNT} unfixed ${{ inputs.fail_on_severity }} vulnerability/vulnerabilities in \`${{ inputs.service_name }}\`." >> "$GITHUB_STEP_SUMMARY"
+            echo "See the GitHub Security tab for details." >> "$GITHUB_STEP_SUMMARY"
+          fi

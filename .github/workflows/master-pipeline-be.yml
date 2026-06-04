@@ -439,7 +439,11 @@ jobs:
       system-name: ${{ matrix.service.name }}
       environment: ${{ (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'test' && 'test' || (github.event_name == 'pull_request' && github.base_ref || github.ref_name) == 'uat' && 'uat' || 'production' }}
       branch: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
-      require-api-center-check: true
+      # Set to false: the BE health controller returns { "status": "ok" } which does
+      # not include a .checks.apiCenter payload. Setting true causes health polling to
+      # time out on every environment. Callers that DO expose the apiCenter check can
+      # override this by passing require-api-center-check: true from their own pipeline.
+      require-api-center-check: false
     secrets: inherit
 
   grafana-k6:

@@ -1,12 +1,46 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# TEMPLATE: be-pipeline-caller.yml
+#
+# Copy this file into the target backend repo at:
+#   .github/workflows/be-pipeline-caller.yml   (or any name you prefer)
+#
+# Calls the unified backend orchestrator in cicd-external-project/cicd-workflow.
+#
+# Triggers:
+#   push         → test, uat, main   (full pipeline: quality + security + deploy + promote)
+#   pull_request → test, uat, main   (quality gate only — no deploy, no promote)
+#   workflow_dispatch                 (manual with override inputs)
+#
+# Required repository variables (set on the caller repo):
+#   BACKEND_SINGLE_SYSTEMS_JSON — describes this service, e.g.:
+#     {"name":"my-service","dir":".","image":"ghcr.io/cicd-external-project/my-service","backend_stack":"nestjs"}
+#   Or for multi-service monorepos: BACKEND_MULTI_SYSTEMS_JSON (JSON array of the above)
+#
+# Required secrets:
+#   GH_PR_TOKEN                 — GitHub PAT for promotion PRs and release tags
+#   RENDER_DEPLOY_HOOK_URL_TEST  — Render deploy hook for test environment
+#   RENDER_DEPLOY_HOOK_URL_UAT   — Render deploy hook for uat environment
+#   RENDER_DEPLOY_HOOK_URL_MAIN  — Render deploy hook for production environment
+#   RENDER_HEALTHCHECK_URL_TEST  — Render health URL for test environment
+#   RENDER_HEALTHCHECK_URL_UAT   — Render health URL for uat environment
+#   RENDER_HEALTHCHECK_URL_MAIN  — Render health URL for production environment
+#
+# Optional secrets (for SonarCloud and k6):
+#   SONAR_TOKEN, SONAR_ORGANIZATION, SONAR_PROJECT_KEY
+#   K6_CLOUD_TOKEN
+#
+# Health check note:
+#   render-deploy.yml defaults require-api-center-check to true. If the service
+#   health endpoint returns { "status": "ok" } (no apiCenter payload), you must
+#   override this in master-pipeline-be.yml. See the render-deploy.yml call site
+#   in master-pipeline-be.yml and set require-api-center-check: false if needed.
+# ─────────────────────────────────────────────────────────────────────────────
 name: "BE Pipeline Caller"
-
-# Configure BACKEND_SINGLE_SYSTEMS_JSON or BACKEND_MULTI_SYSTEMS_JSON in
-# repository variables and include backend_stack per system.
-# Example:
-# {"name":"my-node-api","dir":".","image":"ghcr.io/org/my-node-api","backend_stack":"nodejs"}
 
 on:
   push:
+    branches: [test, uat, main]
+  pull_request:
     branches: [test, uat, main]
   workflow_dispatch:
     inputs:
@@ -64,8 +98,9 @@ permissions:
 
 jobs:
   call-backend-orchestrator:
-    # Pin to a release tag; update when upgrading cicd-workflow.
-    uses: Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/master-pipeline-be.yml@v1
+    # Pin to a release tag once cicd-external-project/cicd-workflow publishes one.
+    # Use @main until then.
+    uses: cicd-external-project/cicd-workflow/.github/workflows/master-pipeline-be.yml@main
     with:
       pipeline_mode: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pipeline_mode || 'auto' }}
       enable_security_scan: ${{ github.event_name == 'workflow_dispatch' && fromJSON(github.event.inputs.enable_security_scan || 'true') || true }}
