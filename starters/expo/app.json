@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "FlowCI Scaffold",
+    "slug": "flowci-scaffold",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "flowciscaffold",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
