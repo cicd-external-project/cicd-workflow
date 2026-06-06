@@ -43,6 +43,11 @@ on:
         type: boolean
         default: true
         description: "Upload coverage artifact"
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+        description: "Optional git ref/SHA to checkout, used by workflow_run chains"
     outputs:
       test-result:
         description: "Test pass/fail result"
@@ -68,6 +73,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.sha }}
 
       - name: Setup Node.js ${{ inputs.node-version }}
         uses: actions/setup-node@v6
