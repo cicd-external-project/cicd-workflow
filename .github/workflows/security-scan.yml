@@ -23,6 +23,11 @@ on:
         type: boolean
         default: true
         description: "Fail pipeline on HIGH severity vulnerabilities"
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+        description: "Optional git ref/SHA to checkout, used by workflow_run chains"
     outputs:
       audit-result:
         description: "npm audit result"
@@ -45,6 +50,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.sha }}
 
       - name: Setup Node.js ${{ inputs.node-version }}
         uses: actions/setup-node@v6
@@ -124,6 +131,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.sha }}
 
       - name: Setup Node.js ${{ inputs.node-version }}
         uses: actions/setup-node@v6
