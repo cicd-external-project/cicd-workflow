@@ -1,0 +1,54 @@
+# Contract: docs/workflows/render-deploy.md
+name: "Reusable: Render Deploy"
+
+on:
+  workflow_call:
+    inputs:
+      system-name:
+        required: true
+        type: string
+        description: "System name for display"
+      environment:
+        required: false
+        type: string
+        default: "test"
+        description: "Deployment environment"
+      branch:
+        required: false
+        type: string
+        default: ""
+        description: "Source branch"
+    secrets:
+      RENDER_DEPLOY_HOOK_URL:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  render-deploy:
+    name: "Deploy ${{ inputs.system-name }} to Render"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate Render Deploy Hook
+        id: hook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "${RENDER_DEPLOY_HOOK_URL}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "No RENDER_DEPLOY_HOOK_URL secret configured; Render native Git deploy may handle this deployment."
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Render Deploy Hook
+        if: steps.hook.outputs.configured == 'true'
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          FLOWCI_ENVIRONMENT: ${{ inputs.environment }}
+          FLOWCI_BRANCH: ${{ inputs.branch }}
+        run: |
+          curl -fsS -X POST "${RENDER_DEPLOY_HOOK_URL}"
+          echo "Triggered Render deploy for ${FLOWCI_ENVIRONMENT} from ${FLOWCI_BRANCH}."
