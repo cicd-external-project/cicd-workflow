@@ -1,5 +1,5 @@
 # Contract: docs/workflows/render-deploy.md
-name: "Reusable: Render Deploy"
+name: "Reusable: Render Image Deploy"
 
 on:
   workflow_call:
@@ -18,38 +18,122 @@ on:
         type: string
         default: ""
         description: "Source branch"
+      working-directory:
+        required: false
+        type: string
+        default: "."
+        description: "Source working directory"
+      docker-context:
+        required: false
+        type: string
+        default: "."
+        description: "Docker build context"
+      dockerfile-path:
+        required: false
+        type: string
+        default: "Dockerfile"
+        description: "Dockerfile path"
+      image-name:
+        required: true
+        type: string
+        description: "GHCR image name"
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+        description: "Git ref or SHA to checkout"
     secrets:
-      RENDER_DEPLOY_HOOK_URL:
+      RENDER_API_KEY:
+        required: true
+      RENDER_SERVICE_ID:
+        required: true
+      RENDER_OWNER_ID:
+        required: true
+      RENDER_REGISTRY_CREDENTIAL_ID:
         required: false
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   render-deploy:
-    name: "Deploy ${{ inputs.system-name }} to Render"
+    name: "Build image and deploy ${{ inputs.system-name }} to Render"
     if: ${{ contains(fromJSON('["test","uat","main"]'), inputs.branch || github.ref_name) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
-      - name: Validate Render Deploy Hook
-        id: hook
-        env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
-        run: |
-          if [ -z "${RENDER_DEPLOY_HOOK_URL}" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "No RENDER_DEPLOY_HOOK_URL secret configured; Render native Git deploy may handle this deployment."
-            exit 0
-          fi
-          echo "configured=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.sha }}
 
-      - name: Trigger Render Deploy Hook
-        if: steps.hook.outputs.configured == 'true'
-        env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
-          FLOWCI_ENVIRONMENT: ${{ inputs.environment }}
-          FLOWCI_BRANCH: ${{ inputs.branch }}
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Compute image tag
+        id: image
+        shell: bash
         run: |
-          curl -fsS -X POST "${RENDER_DEPLOY_HOOK_URL}"
-          echo "Triggered Render deploy for ${FLOWCI_ENVIRONMENT} from ${FLOWCI_BRANCH}."
+          SAFE_BRANCH="$(printf '%s' '${{ inputs.branch || github.ref_name }}' | tr '/[:upper:]' '-[:lower:]')"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ inputs.image-name }}:${SAFE_BRANCH}-${{ github.sha }}"
+          ENCODED="$(IMAGE="$IMAGE" python -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["IMAGE"], safe=""))')"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "encoded=${ENCODED}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.docker-context }}
+          file: ${{ inputs.dockerfile-path }}
+          push: true
+          tags: ${{ steps.image.outputs.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update Render image
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
+          RENDER_REGISTRY_CREDENTIAL_ID: ${{ secrets.RENDER_REGISTRY_CREDENTIAL_ID }}
+          IMAGE_URL: ${{ steps.image.outputs.image }}
+        shell: bash
+        run: |
+          python - <<'PY' > render-image-payload.json
+          import json
+          import os
+
+          image = {
+              "ownerId": os.environ["RENDER_OWNER_ID"],
+              "imagePath": os.environ["IMAGE_URL"],
+          }
+          registry_credential_id = os.environ.get("RENDER_REGISTRY_CREDENTIAL_ID", "").strip()
+          if registry_credential_id:
+              image["registryCredentialId"] = registry_credential_id
+
+          print(json.dumps({"image": image}))
+          PY
+
+          curl -fsS -X PATCH "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data @render-image-payload.json
+
+      - name: Trigger Render image deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          IMAGE_URL: ${{ steps.image.outputs.image }}
+        shell: bash
+        run: |
+          curl -fsS -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"imageUrl\":\"${IMAGE_URL}\"}"
+          echo "Triggered Render image deploy for ${{ inputs.system-name }}."
