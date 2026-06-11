@@ -26,6 +26,11 @@ on:
         type: boolean
         default: true
         description: "Fail pipeline on HIGH severity vulnerabilities"
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+        description: "Git ref to check out (workflow_run chains pass head_sha)"
     outputs:
       audit-result:
         description: "npm audit result"
@@ -49,6 +54,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout-ref }}
 
       - name: Setup Node.js ${{ inputs.node-version }}
         uses: actions/setup-node@v5
@@ -56,7 +63,13 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
       - name: Install Dependencies
-        run: npm ci --ignore-scripts
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            echo "No package-lock.json — falling back to npm install"
+            npm install --ignore-scripts
+          fi
 
       - name: Run npm audit
         id: audit
@@ -132,6 +145,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout-ref }}
 
       - name: Setup Node.js ${{ inputs.node-version }}
         uses: actions/setup-node@v5
@@ -139,7 +154,13 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
       - name: Install Dependencies
-        run: npm ci --ignore-scripts
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            echo "No package-lock.json — falling back to npm install"
+            npm install --ignore-scripts
+          fi
 
       - name: Check Licenses
         run: |

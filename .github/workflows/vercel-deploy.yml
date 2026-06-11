@@ -29,6 +29,11 @@ on:
         type: string
         default: "preview"
         description: "Deployment environment (preview|production)"
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+        description: "Git ref to check out (workflow_run chains pass head_sha)"
     secrets:
       VERCEL_TOKEN:
         required: true
@@ -67,6 +72,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout-ref }}
 
       - name: Validate Project Directory
         run: |

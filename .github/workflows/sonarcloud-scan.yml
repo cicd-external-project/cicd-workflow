@@ -46,6 +46,11 @@ on:
         type: boolean
         default: true
         description: "Wait for SonarCloud quality gate result"
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+        description: "Git ref to check out (workflow_run chains pass head_sha)"
     secrets:
       SONAR_TOKEN:
         required: true
@@ -73,6 +78,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ inputs.checkout-ref }}
 
       - name: Download Coverage Report
         if: ${{ inputs.coverage-artifact-name != '' }}

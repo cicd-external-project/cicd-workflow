@@ -41,6 +41,16 @@ on:
         type: boolean
         default: true
         description: "Upload coverage artifact"
+      enforce-coverage:
+        required: false
+        type: boolean
+        default: true
+        description: "Fail when no coverage summary is produced"
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+        description: "Git ref to check out (workflow_run chains pass head_sha)"
     outputs:
       test-result:
         description: "Test pass/fail result"
@@ -66,12 +76,16 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout-ref }}
 
       - name: Setup Node.js ${{ inputs.node-version }}
         uses: actions/setup-node@v5
         with:
           node-version: ${{ inputs.node-version }}
-          cache: "npm"
+          # Cache only when a lockfile exists — fresh FlowCI scaffolds ship
+          # without package-lock.json and setup-node fails on a missing path.
+          cache: ${{ hashFiles('**/package-lock.json') != '' && 'npm' || '' }}
           cache-dependency-path: |
             **/package-lock.json
 
@@ -87,7 +101,13 @@ jobs:
           echo "✅ Unit tests folder found: ${UNIT_TESTS_DIRECTORY}"
 
       - name: Install Dependencies
-        run: npm ci --ignore-scripts
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            echo "No package-lock.json — falling back to npm install"
+            npm install --ignore-scripts
+          fi
 
       - name: Run Unit Tests with Coverage
         id: test-run
@@ -126,8 +146,12 @@ jobs:
               echo "✅ Coverage meets threshold ${THRESHOLD}% for lines/functions/branches/statements"
             fi
           else
-            echo "❌ coverage/coverage-summary.json not found — failing coverage gate"
-            exit 1
+            if [ "${{ inputs.enforce-coverage }}" = "true" ]; then
+              echo "❌ coverage/coverage-summary.json not found — failing coverage gate"
+              exit 1
+            fi
+            echo "coverage=unknown" >> "$GITHUB_OUTPUT"
+            echo "⚠️ coverage/coverage-summary.json not found — coverage gate skipped (enforce-coverage=false)"
           fi
 
       - name: Upload Coverage Artifact

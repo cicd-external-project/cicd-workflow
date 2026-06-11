@@ -1,6 +1,11 @@
 {
   "currentStable": "v1",
   "repository": "Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow",
+  "nodeVersions": [
+    { "value": "20", "label": "Node 20 LTS (Iron)" },
+    { "value": "22", "label": "Node 22 LTS (Jod)" },
+    { "value": "24", "label": "Node 24 LTS (Noble)" }
+  ],
   "workflows": {
     "frontendMaster": ".github/workflows/master-pipeline-fe.yml",
     "backendMaster": ".github/workflows/master-pipeline-be.yml",

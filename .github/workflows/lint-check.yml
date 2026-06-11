@@ -36,6 +36,11 @@ on:
         type: boolean
         default: false
         description: "Fail on ESLint warnings"
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+        description: "Git ref to check out (workflow_run chains pass head_sha)"
     outputs:
       lint-result:
         description: "Lint pass/fail"
@@ -57,17 +62,27 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout-ref }}
 
       - name: Setup Node.js ${{ inputs.node-version }}
         uses: actions/setup-node@v5
         with:
           node-version: ${{ inputs.node-version }}
-          cache: "npm"
+          # Cache only when a lockfile exists — fresh FlowCI scaffolds ship
+          # without package-lock.json and setup-node fails on a missing path.
+          cache: ${{ hashFiles('**/package-lock.json') != '' && 'npm' || '' }}
           cache-dependency-path: |
             **/package-lock.json
 
       - name: Install Dependencies
-        run: npm ci --ignore-scripts
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts
+          else
+            echo "No package-lock.json — falling back to npm install"
+            npm install --ignore-scripts
+          fi
 
       - name: Run Linter
         id: lint
