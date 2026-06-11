@@ -18,6 +18,11 @@ on:
         type: string
         default: ""
         description: "Optional git ref/SHA to checkout, used by workflow_run chains"
+      source-branch:
+        required: false
+        type: string
+        default: ""
+        description: "Source branch allowed to deploy. Only test, uat, and main are accepted."
       environment:
         required: false
         type: string
@@ -37,6 +42,7 @@ permissions:
 jobs:
   vercel-deploy:
     name: "Deploy ${{ inputs.system-name }} to Vercel"
+    if: ${{ contains(fromJSON('["test","uat","main"]'), inputs.source-branch || github.ref_name) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
