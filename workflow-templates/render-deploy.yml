@@ -2,7 +2,7 @@
 # render-deploy.yml  —  Reusable workflow: trigger Render deploy + health poll
 #
 # Placement (central-workflow repo):
-#   ImplementSprint/central-workflow/.github/workflows/render-deploy.yml
+#   cicd-external-project/cicd-workflow/.github/workflows/render-deploy.yml
 #
 # Contract (workflow_call):
 #   Inputs:

@@ -2,7 +2,7 @@
 # trivy-scan.yml  —  Reusable workflow: Trivy filesystem security scan
 #
 # Placement (central-workflow repo):
-#   ImplementSprint/central-workflow/.github/workflows/trivy-scan.yml
+#   cicd-external-project/cicd-workflow/.github/workflows/trivy-scan.yml
 #
 # Scans the repository filesystem for HIGH and CRITICAL vulnerabilities.
 # Uploads results to GitHub Security tab as a SARIF report and fails the job

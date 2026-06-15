@@ -69,7 +69,7 @@ jobs:
 
       - name: Discover Service Configuration
         id: discover
-        uses: Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/actions/discover-service@v1
+        uses: cicd-external-project/cicd-workflow/.github/actions/discover-service@v1
         with:
           stack: nodejs
           service-path: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_path || '' }}
@@ -79,7 +79,7 @@ jobs:
     name: "Run Node.js Pipeline"
     needs: [discover]
     if: ${{ needs.discover.outputs.should-run == 'true' }}
-    uses: Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow/.github/workflows/service-node.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/service-node.yml@v1
     with:
       service-name: ${{ needs.discover.outputs.service-name }}
       service-path: ${{ needs.discover.outputs.service-path }}

@@ -1,6 +1,6 @@
 {
   "currentStable": "v1",
-  "repository": "Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow",
+  "repository": "cicd-external-project/cicd-workflow",
   "nodeVersions": [
     { "value": "20", "label": "Node 20 LTS (Iron)" },
     { "value": "22", "label": "Node 22 LTS (Jod)" },

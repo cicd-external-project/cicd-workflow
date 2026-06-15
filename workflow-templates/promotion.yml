@@ -2,7 +2,7 @@
 # promotion.yml  —  Reusable workflow: auto-create next-environment PR
 #
 # Placement (central-workflow repo):
-#   ImplementSprint/central-workflow/.github/workflows/promotion.yml
+#   cicd-external-project/cicd-workflow/.github/workflows/promotion.yml
 #
 # Contract (workflow_call):
 #   Inputs:

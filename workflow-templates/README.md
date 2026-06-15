@@ -7,11 +7,11 @@ How they are intended to be used:
 - Publish them from the organization `.github` repository inside `workflow-templates/`.
 - A user chooses the stack-specific template in GitHub's "New workflow" UI.
 - The generated workflow runs a discovery step first to detect the correct service folder and infer safe defaults.
-- The caller workflow then invokes the matching reusable stack workflow from `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow`.
+- The caller workflow then invokes the matching reusable stack workflow from `cicd-external-project/cicd-workflow`.
 
 Each template currently assumes:
 
-- Central workflow repository: `Tone-Lloyd-Sir-Catubag-CICD/cicd-workflow`
+- Central workflow repository: `cicd-external-project/cicd-workflow`
 - Branch policy: `test`, `uat`, `main`
 - Optional environment wiring through repository variables such as `UAT_BASE_URL`, `UAT_COMMAND`, `REQUIRE_UAT_APPROVAL`, and `REQUIRE_PRODUCTION_APPROVAL`
 
