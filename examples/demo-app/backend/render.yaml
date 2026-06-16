@@ -1,0 +1,22 @@
+# Render Blueprint for the FlowCI demo backend.
+#
+# This is an EXAMPLE service definition — FlowCI's generated render-deploy.yml
+# workflow drives deploys via a deploy hook + health verification (see
+# .github/workflows/20-flowci-package.yml), it does not read this file
+# directly. This blueprint documents what the Render service itself should
+# look like if you provision it by hand or via `render blueprint launch`.
+services:
+  - type: web
+    name: flowci-demo-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+    autoDeploy: false
