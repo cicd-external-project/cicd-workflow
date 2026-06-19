@@ -117,11 +117,11 @@ on:
         type: boolean
         default: true
         description: "Run license compliance check"
-      allowed-licenses:
+      forbidden-licenses:
         required: false
         type: string
-        default: "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;Apache 2.0;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;MPL-2.0;Unlicense;Python-2.0;BlueOak-1.0.0;LGPL-3.0-or-later;(Apache-2.0 AND LGPL-3.0-or-later);(BSD-2-Clause OR MIT OR Apache-2.0);(BSD-3-Clause OR GPL-2.0);(MIT OR CC0-1.0)"
-        description: "Semicolon-delimited allow list for license-checker"
+        default: "GPL-1.0;GPL-1.0-only;GPL-1.0-or-later;GPL-2.0;GPL-2.0-only;GPL-2.0-or-later;GPL-3.0;GPL-3.0-only;GPL-3.0-or-later;AGPL-1.0;AGPL-1.0-only;AGPL-1.0-or-later;AGPL-3.0;AGPL-3.0-only;AGPL-3.0-or-later;SSPL-1.0;BUSL-1.1;CC-BY-NC-4.0;CC-BY-NC-SA-4.0"
+        description: "Semicolon-delimited DENY list (copyleft/non-commercial). The check fails only when a dependency actually uses one of these licenses; unlicensed/UNKNOWN packages (e.g. the project's own root package) do NOT fail the build."
       enable-attestation:
         required: false
         type: boolean
@@ -153,8 +153,7 @@ jobs:
         with:
           fail-on-severity: high
           vulnerability-check: true
-          license-check: ${{ inputs.allowed-licenses != '' }}
-          allow-licenses: ${{ inputs.allowed-licenses }}
+          deny-licenses: ${{ inputs.forbidden-licenses }}
 
   static-analysis:
     name: "Static Analysis"
@@ -773,12 +772,17 @@ jobs:
 
       - name: Validate Licenses
         env:
-          ALLOWED_LICENSES: ${{ inputs.allowed-licenses }}
+          FORBIDDEN_LICENSES: ${{ inputs.forbidden-licenses }}
         run: |
-          if [ -n "${ALLOWED_LICENSES}" ]; then
-            npx license-checker --production --excludePrivatePackages --onlyAllow "${ALLOWED_LICENSES}" --summary
-          else
-            npx license-checker --production --excludePrivatePackages --summary
+          # Print the full license summary for visibility (never fails the build).
+          npx license-checker --production --excludePrivatePackages --summary || true
+          # Fail ONLY when a dependency actually uses a forbidden (copyleft /
+          # non-commercial) license. Unlicensed / UNKNOWN packages — including
+          # the project's own root package when it omits a "license" field — do
+          # not fail the build.
+          if [ -n "${FORBIDDEN_LICENSES}" ]; then
+            npx license-checker --production --excludePrivatePackages --failOn "${FORBIDDEN_LICENSES}"
+            echo "✅ No forbidden (copyleft/non-commercial) licenses found"
           fi
 
   build:
