@@ -1,0 +1,42 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  Publish floating v1 tag                                          ║
+# ║                                                                    ║
+# ║  Generated customer pipelines pin the reusable workflows at @v1   ║
+# ║  (see staged-workflow.builder.ts in cicd-workflow-be). Historically║
+# ║  fixes landed on main but the v1 tag was forgotten, so consumers   ║
+# ║  kept running stale workflows. This job force-moves v1 to the      ║
+# ║  latest main on every merge, so @v1 can never drift behind again.  ║
+# ╚══════════════════════════════════════════════════════════════════╝
+name: "Publish v1 tag"
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# Never let two retag runs race; the newest main wins.
+concurrency:
+  group: publish-v1-tag
+  cancel-in-progress: true
+
+jobs:
+  retag:
+    name: "Move v1 to current main"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Force-move v1 tag to this commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f v1 "${GITHUB_SHA}"
+          git push -f origin "refs/tags/v1"
+          echo "✅ v1 now points at ${GITHUB_SHA}"
