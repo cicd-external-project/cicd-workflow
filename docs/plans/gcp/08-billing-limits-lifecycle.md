@@ -1,65 +1,214 @@
-# Billing Limits And Lifecycle Plan
+# Billing Limits And Lifecycle Implementation Plan
 
-Status: Created - needs numeric limits
-Branch: eature/migrate-vercel-render-to-gcp
-Created: 2026-06-30
-Master plan: docs/plans/alphaci-gcp-provider-migration-plan.md
-Index: docs/plans/alphaci-gcp-migration-index.md
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
-## Objective
+**Goal:** Model plan changes as runtime entitlement transitions with bounded compute, preview, cleanup, and migration behavior.
 
-Model plan changes as runtime entitlement transitions with bounded compute, preview, cleanup, and migration behavior.
+**Architecture:** Billing state and runtime state are separate. Billing webhooks or admin plan changes update entitlements first; runtime mutation follows through control-plane jobs. Trial/lower shared tiers use shared runtime; production/business paid tiers can use dedicated customer projects only after routing and project-factory gates pass.
 
-## Dependencies
+**Tech Stack:** NestJS subscription module, billing lifecycle schema, GCP control plane, Stripe or existing billing integration, Cloud Billing export to BigQuery, budget alerts, frontend subscription and runtime status UI.
 
-- Depends on: 02 lifecycle schema, 03 backend controls, 01 billing export setup
-- Blocks: Trials, paid upgrades, downgrades, failed payments, cancellation, cost controls
+---
 
-## Scope
+## Existing Surfaces To Check First
 
-- Trial, lower/shared paid, production/business paid, suspended, and canceled states.
-- Runtime scope by tier.
-- Numeric plan limits.
-- Upgrade/downgrade/payment/cancellation journeys.
-- Billing export and budget alert integration.
-- Cleanup eligibility and retention windows.
+- Subscription module: `C:\Codes\cicd-ex\cicd-workflow-be\src\modules\subscription`
+- Usage quotas migration: `C:\Codes\cicd-ex\cicd-workflow-be\supabase\migrations\20260614_usage_quotas.sql`
+- Frontend subscribe page: `C:\Codes\cicd-ex\cicd-workflow-fe\src\app\subscribe\page.tsx`
+- Frontend subscription API: `C:\Codes\cicd-ex\cicd-workflow-fe\src\lib\api\subscription.ts`
 
-## Non-Goals
+## Runtime Tiers
 
-- Stripe product/pricing implementation details unless needed by lifecycle state.
-- Real-time enforcement from delayed billing export.
-- Deleting customer-owned external services or databases.
+```text
+trial -> shared_project
+lower_shared -> shared_project
+production_business -> dedicated_customer_project after project/routing gates
+suspended -> keep current runtime temporarily, block risky mutations
+canceled -> retain metadata during grace, then cleanup managed runtime resources
+```
 
-## Implementation Checklist
+## Default Numeric Limits To Lock Before Code
 
-- Define numeric limits for CPU, memory, concurrency, min/max instances, deploy frequency, active previews, TTL, and image retention.
-- Persist billing/runtime state separately.
-- Implement trial expiration, upgrade, downgrade, failed payment, cancellation, and retention transitions.
-- Enable billing export before customer workloads if complete cost history is required.
-- Add budget alerts and scheduled cost reports.
-- Gate custom domains and dedicated projects to production/business paid tiers.
+Initial conservative defaults:
 
-## Verification
+| Limit | Trial | Lower/shared paid | Production/business paid |
+| --- | --- | --- | --- |
+| Runtime scope | Shared | Shared | Dedicated after gates |
+| Custom domains | 0 | 0 at first | 5 |
+| Active previews per app | 0 | 1 | 5 |
+| Cloud Run min instances | 0 | 0 | 0 unless approved |
+| Cloud Run max instances | 1 | 2 | 5 default, tier configurable |
+| Deploys per hour per app | 2 | 6 | 20 |
+| Image retention count | 3 | 10 | 20 |
+| Image retention days | 7 | 30 | 90 |
+| Trial grace | 7 days | Not applicable | Not applicable |
+| Failed payment grace | Not applicable | 14 days | 14 days |
+| Downgrade grace | Not applicable | Not applicable | 30 days |
+| Cancellation retention | 7 days | 30 days | 30 days |
 
-- Trial expiry blocks deploys after grace and schedules cleanup.
-- Upgrade to production/business provisions or migrates dedicated runtime only after approval gates.
+These values may be adjusted before implementation, but code must not use vague limits.
+
+## Files To Create Or Modify
+
+- Create `src/modules/billing-lifecycle/billing-lifecycle.module.ts`
+- Create `src/modules/billing-lifecycle/billing-lifecycle.types.ts`
+- Create `src/modules/billing-lifecycle/entitlements.repository.ts`
+- Create `src/modules/billing-lifecycle/entitlements.repository.spec.ts`
+- Create `src/modules/billing-lifecycle/plan-limits.service.ts`
+- Create `src/modules/billing-lifecycle/plan-limits.service.spec.ts`
+- Create `src/modules/billing-lifecycle/lifecycle-transitions.service.ts`
+- Create `src/modules/billing-lifecycle/lifecycle-transitions.service.spec.ts`
+- Modify `src/modules/subscription/subscription.service.ts`
+- Modify `src/modules/subscription/subscription.service.spec.ts`
+- Create frontend hook `src/hooks/use-runtime-entitlements.ts`
+- Create frontend component `src/components/product/runtime-entitlement-banner.tsx`
+
+## Required Lifecycle Metadata
+
+```text
+planTier
+billingStatus
+runtimeScope
+entitlementState
+trialEndsAt
+currentPeriodEndsAt
+downgradeEffectiveAt
+suspensionStartsAt
+cleanupEligibleAt
+customDomainEntitlement
+previewEntitlement
+migrationState
+lastPlanChangeReason
+```
+
+Lifecycle states:
+
+```text
+active_trial
+trial_expiring
+active_lower_shared
+active_production_business
+upgrade_pending
+migration_requested
+migration_in_progress
+migration_verified
+downgrade_pending
+payment_past_due
+suspended
+cancel_requested
+canceled_at_period_end
+canceled
+cleanup_required
+```
+
+## Tasks
+
+### Task 1: Add Plan Limit Tests
+
+Test file: `src/modules/billing-lifecycle/plan-limits.service.spec.ts`
+
+Cases:
+
+- Trial has zero previews and zero custom domains.
+- Lower/shared has one preview and zero custom domains at first.
+- Production/business has custom domains and five previews by default.
+- Max instances and deploy frequency are returned from plan settings.
+- Limits are enforced before GCP operations are queued.
+
+### Task 2: Add Lifecycle Transition Tests
+
+Test file: `src/modules/billing-lifecycle/lifecycle-transitions.service.spec.ts`
+
+Cases:
+
+- Trial expiration blocks new deploys after grace and schedules cleanup.
+- Upgrade to lower/shared lifts trial limits without moving runtime.
+- Upgrade to production/business requests dedicated migration only after gates are enabled.
 - Downgrade enters grace before removing custom domains or dedicated resources.
 - Failed payment blocks risky mutations but keeps running services during grace.
-- Cancellation cleanup never touches customer databases.
+- Cancellation cleanup never touches customer databases or external services.
 
-## Rollback And Cleanup
+### Task 3: Implement Entitlements Repository
 
-- Restore previous entitlement state if billing webhook/job is reversed.
-- Pause destructive cleanup jobs on billing incident.
-- Keep runtime and billing states separate so payment errors do not imply resource deletion.
+Rules:
+
+- Billing state and runtime state are separate fields.
+- Every transition records actor, reason, timestamp, and previous state.
+- Entitlement changes emit audit events.
+- Cleanup eligibility is timestamped, not inferred on the fly.
+
+### Task 4: Wire Subscription Events To Lifecycle
+
+Rules:
+
+- Billing success calls transition service, not runtime cleanup directly.
+- Billing failure creates `payment_past_due` and notification jobs.
+- Downgrade creates `downgrade_pending` with effective date.
+- Cancellation creates `cancel_requested` or `canceled_at_period_end`.
+
+### Task 5: Add Runtime Enforcement Points
+
+Before provisioning/deploy/preview/custom-domain operations, backend must check:
+
+```text
+planTier
+billingStatus
+runtimeScope
+previewEntitlement
+customDomainEntitlement
+maxInstances
+deployFrequency
+cleanupEligibleAt
+```
+
+### Task 6: Add Billing Export And Budget Plan
+
+Use Cloud Billing export to BigQuery for reporting/margins, not real-time enforcement.
+
+Required metadata:
+
+```text
+billingExportProjectId
+billingExportDataset
+standardUsageTable
+detailedUsageTable
+lastImportAt
+lastSuccessfulReportAt
+```
+
+Budget alerts must exist before broad paid rollout.
+
+## Verification Commands
+
+Backend:
+
+```powershell
+npm test -- src/modules/billing-lifecycle/plan-limits.service.spec.ts
+npm test -- src/modules/billing-lifecycle/lifecycle-transitions.service.spec.ts
+npm test -- src/modules/billing-lifecycle/entitlements.repository.spec.ts
+npm test -- src/modules/subscription/subscription.service.spec.ts
+npm run typecheck
+npm run lint
+```
+
+Frontend:
+
+```powershell
+npm test -- tests/unit/subscription.test.ts tests/unit/subscribe-page.test.tsx
+npm run lint
+```
+
+## Rollback
+
+- Restore previous entitlement state if billing event is reversed.
+- Pause destructive cleanup jobs during billing incident.
+- Keep runtime and billing state separate so payment errors do not imply immediate deletion.
+- Dedicated project deletion always requires manual approval.
 
 ## Acceptance Gates
 
-- Every plan transition has an explicit state and customer-visible effect.
-- Plan limits enforce before GCP quota or billing export becomes the only control.
-- Dedicated project deletion requires manual approval.
-- Billing export is reporting/margin input, not sole enforcement mechanism.
-
-## Notes
-
-Update this child plan when implementation starts. If a decision changes the migration direction, update the master plan first, then this file.
+- Every plan transition has explicit state and customer-visible effect.
+- Plan limits enforce before GCP quota or delayed billing export becomes the only control.
+- Trial, upgrade, downgrade, failed payment, and cancellation journeys are tested.
+- Customer databases and external services are never deleted by AlphaCI.
+- Billing export is reporting/margin input, not the sole enforcement mechanism.

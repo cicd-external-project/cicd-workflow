@@ -51,16 +51,16 @@ Planned child plans:
 
 | Order | Area | Child plan | Status |
 | --- | --- | --- | --- |
-| 1 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Created |
-| 2 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Created |
-| 3 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | Created |
-| 4 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | Created |
-| 5 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Created |
-| 6 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Created |
-| 7 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | Created |
-| 8 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Created |
-| 9 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Created |
-| 10 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Created |
+| 1 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Detailed |
+| 2 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Detailed |
+| 3 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | Detailed |
+| 4 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | Detailed |
+| 5 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Detailed |
+| 6 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Detailed |
+| 7 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | Detailed |
+| 8 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Detailed |
+| 9 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed |
+| 10 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Detailed |
 
 ## Implementation Readiness Index
 
@@ -1906,3 +1906,4 @@ Recommended default decisions unless later changed:
 - 2026-06-30: Added non-blocking phase strategy so phases can overlap as independently runnable slices while strict gates control rollout promotion.
 - 2026-06-30: Added split-doc index, pre-implementation hardening checklist, exact GCP services/API matrix, and implementation questions that must close inside child plans.
 - 2026-06-30: Created actual child split plans under docs/plans/gcp/ and updated the split-doc index statuses from planned to created.
+- 2026-06-30: Expanded all child split plans into detailed implementation plans with concrete files, tasks, tests, rollback, and acceptance gates.

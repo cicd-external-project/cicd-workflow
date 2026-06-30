@@ -1,66 +1,204 @@
-# Shared To Dedicated Migration Plan
+# Shared To Dedicated Migration Implementation Plan
 
-Status: Created - blocked until routing topology is proven
-Branch: eature/migrate-vercel-render-to-gcp
-Created: 2026-06-30
-Master plan: docs/plans/alphaci-gcp-provider-migration-plan.md
-Index: docs/plans/alphaci-gcp-migration-index.md
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
-## Objective
+**Goal:** Move paid/production customer workloads from the shared runtime project to dedicated customer GCP projects without changing customer/app identity or losing rollback.
 
-Move paid/production customer workloads from the shared runtime project to dedicated customer GCP projects without changing customer/app identity or losing rollback.
+**Architecture:** The migration is two-phase. First create and verify the dedicated target while shared continues serving traffic. Then move routing only after health checks and domain checks pass. Shared runtime stays available as rollback until the retention window passes. Dedicated projects remain product-disabled until project factory, billing, IAM, routing topology, cleanup, and admin approvals are proven live.
 
-## Dependencies
+**Tech Stack:** GCP Resource Manager, Cloud Billing, Service Usage, IAM, Artifact Registry, Secret Manager, Cloud Run, domain routing plan, backend control-plane jobs, lifecycle entitlements, admin approvals.
 
-- Depends on: 01 bootstrap access, 03 backend control plane, 04 central workflow, 05 domains routing, 08 lifecycle, 09 operations
-- Blocks: Production/business dedicated customer projects
+---
 
-## Scope
+## Hard Block Before Implementation
 
-- Dedicated project creation and billing link.
-- API enablement, Artifact Registry, service accounts, Secret Manager, labels, and budgets.
-- Recreate or migrate env-var secret references.
-- Deploy same image or latest approved image to dedicated Cloud Run service.
-- Move managed-domain and custom-domain routing after health checks.
-- Retire shared resources after retention and approval.
+Do not enable production/business dedicated customer projects until one routing option has a separate approved design and live proof:
 
-## Non-Goals
+```text
+Option B: central routing project with validated cross-project backend pattern
+Option C: per-customer routing in dedicated projects
+```
 
-- Launching dedicated projects before routing topology proof.
-- Deleting shared resources immediately after first successful deploy.
-- Moving or managing customer databases.
+The live proof must cover managed-domain traffic, custom-domain traffic, rollback, and cleanup.
 
-## Implementation Checklist
+## Migration Sequence
 
-- Choose Option B central routing or Option C per-customer routing in a separate approved design.
-- Smoke-test managed-domain traffic, custom-domain traffic, rollback, and cleanup across chosen topology.
-- Create dedicated project factory with idempotency and cleanup states.
-- Deploy and verify dedicated target before moving routing.
-- Keep shared target as rollback until retention window passes.
-- Require manual approval before deleting dedicated projects or production shared resources.
+```text
+1. Create dedicated GCP project.
+2. Link billing.
+3. Enable required APIs.
+4. Create Artifact Registry repository.
+5. Create deployer/runtime service accounts.
+6. Recreate or migrate customer-provided env-var secret references in Secret Manager.
+7. Deploy same image digest or latest approved image to dedicated Cloud Run service.
+8. Run synthetic health checks.
+9. Verify managed-domain and custom-domain routing.
+10. Move routing from shared to dedicated target.
+11. Keep shared target available for rollback window.
+12. Retire shared resources after retention and manual approval.
+```
 
-## Verification
+## Files To Create Or Modify
 
-- Dedicated project provisioning is idempotent.
-- Failed provisioning leaves `failed` or `cleanup_required`.
-- Shared and dedicated services can run side by side.
-- Routing move is reversible.
-- Env-var secret references migrate without exposing values.
-- Cleanup selector cannot delete wrong customer/app resources.
+- Create `src/modules/gcp-project-factory/gcp-project-factory.module.ts`
+- Create `src/modules/gcp-project-factory/gcp-project-factory.service.ts`
+- Create `src/modules/gcp-project-factory/gcp-project-factory.service.spec.ts`
+- Create `src/modules/gcp-project-factory/dedicated-project-migration.service.ts`
+- Create `src/modules/gcp-project-factory/dedicated-project-migration.service.spec.ts`
+- Create `src/modules/gcp-project-factory/project-billing.service.ts`
+- Create `src/modules/gcp-project-factory/project-api-enablement.service.ts`
+- Modify `src/modules/gcp-control/provisioning-orchestrator.service.ts`
+- Modify `src/modules/runtime-domains/domain-records.service.ts`
+- Modify `src/modules/billing-lifecycle/lifecycle-transitions.service.ts`
+- Modify admin module to approve project creation and destructive cleanup.
 
-## Rollback And Cleanup
+## Required Dedicated Project Metadata
+
+```text
+workspaceId
+customerId
+customerSlug
+appSlug
+dedicatedGcpProjectId
+dedicatedGcpProjectNumber
+billingAccountName
+folderId
+region
+artifactRegistryRepo
+runtimeServiceAccount
+deployerServiceAccount
+budgetId
+migrationState
+sharedSourceDeploymentTargetId
+dedicatedDeploymentTargetId
+rollbackUntil
+cleanupEligibleAt
+approvalId
+```
+
+Migration states:
+
+```text
+requested
+approved
+creating_project
+linking_billing
+enabling_apis
+creating_iam
+creating_registry
+migrating_secrets
+deploying_dedicated
+verifying_health
+verifying_routing
+routing_cutover_ready
+routing_cutover_complete
+rollback_required
+retention_wait
+cleanup_required
+completed
+failed
+```
+
+## Tasks
+
+### Task 1: Add Project Factory Guard Tests
+
+Test file: `src/modules/gcp-project-factory/gcp-project-factory.service.spec.ts`
+
+Cases:
+
+- Dedicated project creation is rejected when `GCP_DEDICATED_PROJECTS_ENABLED=false`.
+- Dedicated project creation requires production/business entitlement.
+- Dedicated project creation requires manual approval.
+- Dedicated project ID is deterministic and collision-safe.
+- Failed creation leaves `failed` or `cleanup_required` state.
+
+### Task 2: Add Migration Service Tests
+
+Test file: `src/modules/gcp-project-factory/dedicated-project-migration.service.spec.ts`
+
+Cases:
+
+- Migration deploys dedicated target before moving routing.
+- Shared target remains active until dedicated target is healthy.
+- Routing cutover can roll back to shared target.
+- Secret metadata migrates without exposing raw values.
+- Dedicated project cleanup requires manual approval.
+
+### Task 3: Implement Project Factory
+
+Rules:
+
+- Create project with approved folder and billing account only.
+- Link billing before workload resources are created.
+- Enable required APIs idempotently.
+- Create Artifact Registry repo and service accounts.
+- Apply labels: `managed_by=alphaci`, `customer`, `app`, `environment`, `slot`, `runtime_scope=dedicated_customer_project`.
+- Create budget alert if billing API scope is available.
+
+### Task 4: Implement Secret Reference Migration
+
+Rules:
+
+- Raw secret values are not readable from AlphaCI if the source of truth is write-only.
+- If values cannot be copied, mark migration as waiting for customer/admin secret re-entry.
+- Secret metadata should map old reference to new Secret Manager reference.
+- Production secrets are never printed in logs or migration errors.
+
+### Task 5: Implement Dedicated Deploy And Verification
+
+Rules:
+
+- Deploy same image digest or latest approved image.
+- Use dedicated runtime service account.
+- Run synthetic health probe.
+- Store dedicated revision and image digest.
+- Do not move routing until health and metadata persistence pass.
+
+### Task 6: Implement Routing Cutover
+
+Rules:
+
+- Update domain records to point primary managed/custom domains to dedicated target.
+- Keep fallback/shared target route until rollback window expires.
+- Cutover writes audit events and notification events.
+- Rollback moves route back to shared target and marks migration `rollback_required`.
+
+### Task 7: Implement Retention And Cleanup
+
+Rules:
+
+- Shared resources remain until dedicated target has been healthy for retention window.
+- Cleanup requires metadata and label proof.
+- Production resource deletion requires manual approval.
+- Dedicated project deletion is a separate manual approval action.
+
+## Verification Commands
+
+Backend:
+
+```powershell
+npm test -- src/modules/gcp-project-factory/gcp-project-factory.service.spec.ts
+npm test -- src/modules/gcp-project-factory/dedicated-project-migration.service.spec.ts
+npm test -- src/modules/runtime-domains/domain-records.service.spec.ts
+npm test -- src/modules/billing-lifecycle/lifecycle-transitions.service.spec.ts
+npm run typecheck
+npm run lint
+```
+
+Live smoke tests require explicit approval and must use a disposable customer/app target before production rollout.
+
+## Rollback
 
 - Move routing back to shared target.
-- Keep shared Cloud Run service, images, and secrets until dedicated target is healthy for retention window.
+- Keep shared Cloud Run service, images, secrets, and domain records until dedicated target is healthy for the retention window.
 - Mark migration `rollback_required` if route or health verification fails.
+- Do not delete dedicated project automatically after rollback; create admin cleanup task.
 
 ## Acceptance Gates
 
 - Customer/app/environment/slot identity is unchanged.
 - Dedicated project routing topology has live proof.
 - Migration preserves domains, env metadata, deployment history, and rollback.
+- Shared and dedicated targets can run side by side during verification.
 - Destructive cleanup is manually approved and audited.
-
-## Notes
-
-Update this child plan when implementation starts. If a decision changes the migration direction, update the master plan first, then this file.

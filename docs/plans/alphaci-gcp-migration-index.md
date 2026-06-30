@@ -16,16 +16,16 @@ Do not start broad implementation from the master plan alone. Pick one indexed a
 | Order | Area | Child plan | Status | Blocks |
 | --- | --- | --- | --- | --- |
 | 0 | Master decisions and invariants | `docs/plans/alphaci-gcp-provider-migration-plan.md` | Active | All implementation plans |
-| 1 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Created | Live deploys, WIF, Artifact Registry, Secret Manager, Cloud Run |
-| 2 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Created | Backend runtime metadata, lifecycle state, BYO removal |
-| 3 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | Created | Provisioning jobs, idempotency, reconciliation, admin approvals |
-| 4 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | Created | Docker build, Artifact Registry push, Cloud Run deploy, health probes |
-| 5 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Created | Managed domains, wildcard DNS, load balancer, custom domains |
-| 6 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Created | PR services, TTL, preview secrets, cleanup |
-| 7 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | Created | Vercel/Render feature flags, BYO provider removal, credential cleanup |
-| 8 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Created | Trials, upgrades, downgrades, failed payments, cancellation |
-| 9 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Created | Audit, observability, DR, quotas, admin tooling |
-| 10 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Created | Production/business dedicated projects |
+| 1 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Detailed | Live deploys, WIF, Artifact Registry, Secret Manager, Cloud Run |
+| 2 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Detailed | Backend runtime metadata, lifecycle state, BYO removal |
+| 3 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | Detailed | Provisioning jobs, idempotency, reconciliation, admin approvals |
+| 4 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | Detailed | Docker build, Artifact Registry push, Cloud Run deploy, health probes |
+| 5 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Detailed | Managed domains, wildcard DNS, load balancer, custom domains |
+| 6 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Detailed | PR services, TTL, preview secrets, cleanup |
+| 7 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | Detailed | Vercel/Render feature flags, BYO provider removal, credential cleanup |
+| 8 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Detailed | Trials, upgrades, downgrades, failed payments, cancellation |
+| 9 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed | Audit, observability, DR, quotas, admin tooling |
+| 10 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Detailed | Production/business dedicated projects |
 
 ## Split Rule
 
