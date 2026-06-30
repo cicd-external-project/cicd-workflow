@@ -1,8 +1,8 @@
 # AlphaCI GCP Provider Migration Plan
 
-Status: Living brainstorm plan, hardened review pass 2026-06-29  
-Branch: `feature/migrate-vercel-render-to-gcp` 
-Created: 2026-06-29  
+Status: Living brainstorm plan, hardened review pass 2026-06-30
+Branch: `feature/migrate-vercel-render-to-gcp`
+Created: 2026-06-29
 GCP seed project: `alphaci-20260629`
 
 ## Purpose
@@ -28,6 +28,52 @@ Shared GCP project now
 Tenant/project abstraction from day one
 Dedicated customer projects later for paid or production workloads
 ```
+
+## Master Plan And Split-Doc Index
+
+This file remains the master decision source until implementation plans are split out.
+
+Index file:
+
+```text
+docs/plans/alphaci-gcp-migration-index.md
+```
+
+Split rule:
+
+- Keep product decisions, invariants, resolved decisions, and open questions in this master plan.
+- Put implementation details in focused child plans once work starts.
+- Every child plan must link back to this master plan and the index.
+- If a child plan changes a decision, update this master plan first.
+- Do not let child plans duplicate contradictory defaults; the master plan wins unless explicitly updated.
+
+Planned child plans:
+
+| Order | Area | Child plan | Status |
+| --- | --- | --- | --- |
+| 1 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Created |
+| 2 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Created |
+| 3 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | Created |
+| 4 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | Created |
+| 5 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Created |
+| 6 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Created |
+| 7 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | Created |
+| 8 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Created |
+| 9 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Created |
+| 10 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Created |
+
+## Implementation Readiness Index
+
+Use this index to split the master plan into implementation work. Do not start broad coding from this document alone; convert each area into a scoped implementation plan with tests and rollback gates.
+
+1. GCP bootstrap and access: enabled APIs, WIF, service accounts, IAM matrix, Artifact Registry, Secret Manager, Cloud Run smoke deploy, billing export, budget alerts.
+2. Database expand-contract migration: new runtime schemas/tables, compatibility links, feature flags, backfills, validation queries, rollback migrations.
+3. Backend control plane: async jobs, idempotency, locks, reconciliation, audit events, admin approvals, safe error model.
+4. Central workflow replacement: GitHub OIDC auth, Docker build, push by digest, Cloud Run deploy, synthetic health probe, output contract, static workflow tests.
+5. Domain and routing: managed-domain base, temporary `itsandbox.site`, future domain cutover, load balancer topology, fallback domains, custom-domain verification.
+6. Preview deployments: PR service lifecycle, TTL, limits, preview-scoped secrets, cleanup, fork policy.
+7. Legacy provider deprecation: Vercel/Render feature flags, UI/API removal, legacy credential retention and cleanup, tracked migration state.
+8. Operations and launch safety: quota registry, DR runbooks, incident playbooks, notifications, cost reporting, admin tooling.
 
 ## Key Argument
 
@@ -122,7 +168,12 @@ deployerServiceAccount
 secretNamespace
 defaultDomain
 customDomains[]
+domainBase
 routingMode: load_balancer | cloud_run_mapping_dev_only
+isPrimary
+isFallback
+isDeprecated
+replacementDomainId
 labels
 provisioningStatus
 deploymentStatus
@@ -198,7 +249,55 @@ Schema rules:
 - Every schema change needs a forward migration and, where practical, a rollback migration.
 - Runtime, domain, and secret schemas should be inaccessible to anonymous/client roles; writes should go through the backend service role and audited service methods.
 
+## Non-Blocking Phase Strategy
+
+Phases are completion gates, not global start blockers. A later phase can begin when its direct dependencies are satisfied and the work is isolated behind feature flags, test environments, or non-production targets.
+
+Principles:
+
+- Every phase must produce a working slice, not only design artifacts.
+- A phase can be marked `started`, `runnable`, `limited`, or `complete`.
+- `complete` means the phase satisfies its exit gates.
+- `runnable` means the phase can be exercised safely in dev/test with known limits.
+- `limited` means the phase works for the shared launch scope but not yet for production/business dedicated projects.
+- Strict gates block promotion to broader rollout, not local implementation or parallel discovery.
+- Work that affects production traffic, customer data, billing, IAM, domains, or cleanup still requires the manual approval gates in this plan.
+
+Recommended overlap model:
+
+```text
+Phase 1 foundation can run while Phase 2 DB/control-plane migrations are built locally.
+Phase 2 backend metadata can run before live GCP deploys if it writes isolated runtime_* schemas behind feature flags.
+Phase 3 workflows can be built against disposable test targets once WIF and minimal APIs exist.
+Phase 3C previews can be built after the base deploy path exists in dev/test, even before paid-tier production domains.
+Phase 4 domain work can start with temporary managed-domain routing while dedicated customer routing remains blocked.
+Phase 5 cost controls can start with AlphaCI plan limits before billing export reports are fully wired.
+Dedicated customer projects remain a separate production-readiness gate, not a blocker for shared-project launch.
+```
+
+Runnable slice requirements:
+
+```text
+Phase 1 runnable: WIF-authenticated disposable Cloud Run deploy in alphaci-20260629, then cleanup.
+Phase 2 runnable: backend can create GCP runtime metadata in new schemas without touching live Vercel/Render records.
+Phase 2A runnable: new project creation cannot expose Vercel/Render BYO paths when legacy flags are off.
+Phase 3 runnable: reusable workflow builds, pushes, deploys, probes health, and reports safe output for one test service.
+Phase 3C runnable: one PR preview can be created and cleaned up without affecting staging/prod.
+Phase 4 runnable: one generated managed-domain route works for a test service through the shared routing path.
+Phase 5 runnable: plan limits enforce max deploys/previews/instances before relying on billing export.
+```
+
+Promotion rules:
+
+- Dev/test work can proceed with temporary/manual setup if the plan records the gap and cleanup owner.
+- UAT requires repeatable setup scripts or documented runbooks.
+- Production shared-project launch requires Phase 1, Phase 2, Phase 3, shared-routing Phase 4, and basic Phase 5 controls to be `complete` for shared runtime scope.
+- Production/business dedicated projects require the dedicated-project routing topology and project-factory gates to be `complete`.
+- Custom domains require Phase 4 custom-domain gates to be `complete`; default managed-domain routing can launch first.
+- Active image deletion requires Artifact Registry cleanup dry-run review even if deploys are already live.
 ## Phase Exit Gates
+
+These gates define when a phase is complete enough for rollout. They do not prevent isolated implementation, local tests, or dev/test work in another phase when direct dependencies are met.
 
 Phase 1, GCP platform foundation, is not done until:
 
@@ -224,7 +323,7 @@ Phase 3, workflow deployment, is not done until:
 - Images push to Artifact Registry with deterministic names and immutable digests.
 - Cloud Run deploy uses runtime service account, labels, region, project, and secret references from metadata.
 - Workflow outputs include revision, image digest, service URL, health result, and safe logs URL.
-- Health check failure does not mark deployment healthy.
+- Health check failure does not mark deployment healthy. Health status must come from AlphaCI synthetic probes or workflow probes against the managed URL or Cloud Run URL, not from load-balancer backend health checks for serverless NEGs.
 - Static workflow tests prove no service account JSON secret is referenced.
 
 Phase 3C, preview deployments, is not done until:
@@ -235,9 +334,10 @@ Phase 3C, preview deployments, is not done until:
 - Closing or merging a PR triggers preview expiration and cleanup.
 - Plan limits cap active previews, max instances, TTL, images, and preview-specific secrets.
 - Cleanup tests prove preview deletion cannot delete production/staging services, images, domains, or secrets.
+
 Phase 4, domains and networking, is not done until:
 
-- `itsandbox.site` and `*.itsandbox.site` route through the target load-balancer path.
+- The active managed deployment domain and wildcard route through the target load-balancer path; launch value is `itsandbox.site` and `*.itsandbox.site`.
 - Certificate Manager covers root and wildcard domains.
 - Domain reservation prevents two apps from claiming the same generated subdomain.
 - The dashboard shows default domain, custom domain status, DNS instructions, certificate status, and last verification time.
@@ -247,7 +347,7 @@ Phase 5, cost and controls, is not done until:
 
 - Plan limits and lifecycle states exist before depending on GCP billing export.
 - Max instances, deploy frequency, image retention, and preview lifetime are enforced by AlphaCI.
-- BigQuery billing export is used for reporting and margin checks, not real-time enforcement.
+- BigQuery billing export is enabled before customer workloads and used for reporting and margin checks, not real-time enforcement.
 - Cleanup jobs can list only AlphaCI-owned resources by labels and metadata.
 
 Dedicated customer projects are not production-ready until:
@@ -255,6 +355,7 @@ Dedicated customer projects are not production-ready until:
 - Project creation, billing link, API enablement, IAM setup, Artifact Registry setup, Secret Manager setup, and cleanup are idempotent.
 - Failed project provisioning leaves a clear `cleanup_required` or `failed` state.
 - Migration from shared to dedicated preserves domains, env vars, deployment history, and rollback path.
+- The chosen dedicated-project routing topology has passed a live smoke test for managed-domain traffic, custom-domain traffic, rollback, and cleanup.
 - A manual approval gate exists before deleting a dedicated customer project.
 
 ## Rollback And Failure Rules
@@ -301,11 +402,11 @@ Use these defaults unless a later implementation plan changes them explicitly:
 - Lower/shared tiers: shared runtime project, shared Artifact Registry repo, AlphaCI-owned default domain only.
 - Production/business paid tiers: dedicated customer project, customer-scoped Artifact Registry repo, custom domains allowed.
 - Cloud Run lower-tier services: start with conservative CPU, memory, concurrency, and max-instance limits defined in AlphaCI plan settings before rollout.
-- Artifact Registry cleanup: keep currently deployed images, keep the last 10 successful deploys per service, delete older lower-tier images after 30 days, and delete older production/business images after 90 days unless under incident hold.
+- Artifact Registry cleanup: keep currently deployed images, keep the last 10 successful deploys per service, delete older lower-tier images after 30 days, and delete older production/business images after 90 days unless under incident hold. Cleanup policies must run in dry-run mode first and be reviewed before active deletion is enabled.
 - Preview deployments: use separate Cloud Run services per PR, require expiration time and cleanup owner at creation, default min instances to 0, and delete after PR close or inactivity TTL.
 - Trial/lower/shared tiers run in the shared runtime scope; production/business paid tiers get dedicated customer projects.
 - Downgrades enter a grace state first; do not immediately delete dedicated infrastructure or remove custom domains without retention and approval rules.
-- Dashboard status: never show success until deploy, health check, and metadata persistence all succeed.
+- Dashboard status: never show success until deploy, synthetic health probe, and metadata persistence all succeed.
 
 ## Acceptance Checklist Before Implementation
 
@@ -319,6 +420,49 @@ Before implementation starts, the plan is considered ready only if these are tru
 - Every live GCP action has a cleanup path.
 - Every customer-visible domain path has a default URL, custom-domain rule, and rollback behavior.
 
+## Pre-Implementation Hardening Checklist
+
+Before coding broad GCP replacement work, lock the decisions below. These are not abstract design questions; each one affects database migrations, workflow contracts, IAM bindings, rollout safety, or customer-visible behavior.
+
+1. Bootstrap ownership:
+   - Decide whether Phase 1 stable infrastructure is owned by Terraform, Pulumi, checked-in `gcloud` scripts, or a documented manual bootstrap runbook.
+   - First recommendation: use checked-in bootstrap scripts/runbooks for the first shared-project smoke test, then move stable shared infrastructure into Terraform before production rollout.
+   - Do not let the backend create organization folders, WIF pools, baseline Artifact Registry repos, billing export, DNS zones, load balancers, or wildcard certificates without an IaC or explicit admin-bootstrap owner.
+
+2. Exact API/service enablement:
+   - Use the GCP Services/API Matrix in this plan as the source of truth.
+   - Each API must state whether it is required for shared launch, domain launch, billing/cost launch, security launch, or future dedicated-project launch.
+   - The implementation must decide whether AlphaCI enables the API automatically, fails with setup instructions, or requires an admin bootstrap step.
+
+3. Secret source of truth:
+   - Runtime env vars go to GCP Secret Manager.
+   - Build-only secrets may go to GitHub Actions secrets only when the build truly needs the value before runtime.
+   - Raw secret values are write-only through AlphaCI after submission; dashboard/API reads return metadata and redacted status only.
+   - Secret updates must write new versions or new references, not overwrite audit history.
+
+4. Database table shape:
+   - Define table names and ownership before implementation, not only schema names.
+   - Minimum tables should cover deployment targets, deployment attempts, Cloud Run revisions, domain records, secret references, provisioning jobs, lifecycle entitlements, audit events, and migration links from legacy `env_provisioning`.
+   - New tables must support expand-contract migration beside the current production schema and must not require immediate deletion of old Vercel/Render data.
+
+5. Workflow concurrency:
+   - Enforce one active deploy per workspace/project/app/environment/slot.
+   - Cancel stale preview deployments for the same PR when a newer commit starts.
+   - Do not auto-cancel production rollback jobs.
+   - Every workflow run must carry a correlation ID that links GitHub Actions, backend deployment history, Cloud Run revision, and audit events.
+
+6. Tier limits:
+   - Replace vague limits with numeric defaults before enforcement code is written.
+   - Required defaults: CPU, memory, concurrency, min instances, max instances, deploys per hour/day, active previews, preview TTL, image retention count, image retention days, and cleanup grace periods per tier.
+   - Limits must live in AlphaCI plan settings, not only in workflow YAML.
+
+7. Dedicated-project product gate:
+   - Dedicated customer projects stay product-disabled until the routing topology is chosen, implemented, and live-smoke-tested.
+   - Shared runtime launch is allowed to proceed without dedicated projects if shared routing, limits, rollback, cleanup, and billing controls are complete for the shared scope.
+
+8. Operational SLOs and alerts:
+   - Define deploy duration, stuck provisioning, failed cleanup, domain verification, billing export freshness, and preview cleanup backlog thresholds before broad rollout.
+   - Alerting can start simple, but every threshold must have an owner and first response action.
 ## Operational Control Plane Requirements
 
 The GCP migration needs an operational control plane, not only deployment workflows. The control plane is the part of AlphaCI that owns provisioning state, permissions, retries, reconciliation, cleanup, admin actions, and customer-visible lifecycle status.
@@ -376,6 +520,28 @@ allowed environments
 rotation/review owner
 ```
 
+Required WIF policy decisions before implementation:
+
+```text
+allowedGitHubOrg
+allowedCentralWorkflowRepo
+allowedCallerRepos
+allowedReusableWorkflowRefs
+allowedBranches
+allowedTags
+allowedGitHubEnvironments
+allowPullRequestPreviews
+allowForkPullRequestPreviews
+serviceAccountPerEnvironment
+serviceAccountPerRuntimeScope
+```
+
+WIF rules:
+
+- PR previews from forks must be disabled by default unless a separate untrusted-preview design is approved.
+- Production deploys must require protected GitHub environments or protected branches.
+- Reusable workflows must validate the expected repository, ref, event type, and environment before requesting GCP credentials.
+- The WIF provider condition must be narrow enough that another GitHub organization or unrelated repository cannot exchange tokens.
 Minimum IAM requirements:
 
 - GitHub Actions authenticates through Workload Identity Federation only.
@@ -467,7 +633,7 @@ Domain management needs explicit ownership and collision rules.
 
 Required controls:
 
-- Reserve generated `itsandbox.site` subdomains before exposing them.
+- Reserve generated active managed-domain subdomains before exposing them; launch value uses `itsandbox.site`.
 - Use canonical normalized slugs plus stable hash suffixes for generated domains.
 - Prevent two workspaces from claiming the same generated subdomain or custom domain.
 - Verify custom-domain ownership before routing traffic.
@@ -594,6 +760,77 @@ The implementation plan must include database changes as first-class work:
 - Encrypted legacy provider credentials cleanup after migration and retention policy expiry.
 - Forward migrations, practical rollback migrations, and data validation queries for every phase.
 - Tests that prove client/anonymous roles cannot read runtime secret metadata or admin-only operational tables.
+
+## Current GCP Bootstrap State
+
+Last checked: 2026-06-30 with `gcloud` authenticated as `abtorres.it@alphaexplora.com`.
+
+Confirmed access and resources:
+
+```text
+active project: alphaci-20260629
+project number: 840317199583
+organization: alphaexplora.com / 905531103378
+billing account: billingAccounts/01C34F-9DCD67-86DB82
+project billing: enabled
+project IAM for active user: roles/owner on alphaci-20260629
+billing IAM for active user: roles/billing.admin on 01C34F-9DCD67-86DB82
+visible org projects: alphaci-20260629, apicenter-alpha-20260623
+```
+
+Confirmed gaps:
+
+```text
+service accounts in alphaci-20260629: none yet
+WIF pools in alphaci-20260629: none yet
+Artifact Registry API: disabled
+Cloud Run Admin API: disabled
+Secret Manager API: disabled
+Artifact Registry repos: none yet
+Cloud Run services: none yet
+org getIamPolicy: denied
+folder list: denied
+```
+
+Bootstrap implication:
+
+- Phase 1 can start inside `alphaci-20260629` after enabling required APIs.
+- Full folder/project-factory work for dedicated customer projects needs additional organization/folder permissions or a separate admin bootstrap process.
+- Do not assume folder creation, org IAM review, or dedicated customer project placement is currently automated or permission-ready.
+
+## GCP Services/API Matrix
+
+This matrix is the source of truth for which Google Cloud services AlphaCI needs and why. Implementation work must use the service IDs, not only friendly product names.
+
+| Service ID | Product / API | Required for | Launch stance | Owner |
+| --- | --- | --- | --- | --- |
+| `cloudresourcemanager.googleapis.com` | Cloud Resource Manager API | project metadata, future project factory, labels, IAM/project lookup | Required before shared launch | Admin bootstrap / backend read paths |
+| `serviceusage.googleapis.com` | Service Usage API | checking/enabling APIs in managed projects | Required before shared launch | Admin bootstrap first, backend/project factory later |
+| `iam.googleapis.com` | IAM API | service accounts, IAM policy bindings | Required before shared launch | Admin bootstrap / backend provisioning jobs |
+| `iamcredentials.googleapis.com` | IAM Service Account Credentials API | service account impersonation and WIF token exchange flows | Required before shared launch | Admin bootstrap |
+| `sts.googleapis.com` | Security Token Service API | Workload Identity Federation from GitHub OIDC | Required before shared launch | Admin bootstrap |
+| `run.googleapis.com` | Cloud Run Admin API | deploying and managing services/revisions | Required before shared launch | Workflow deployer and backend control plane |
+| `artifactregistry.googleapis.com` | Artifact Registry API | storing Docker images | Required before shared launch | Workflow deployer / admin bootstrap |
+| `secretmanager.googleapis.com` | Secret Manager API | runtime env-var secret storage and references | Required before shared launch | Backend secret writer / runtime service accounts |
+| `logging.googleapis.com` | Cloud Logging API | logs links, diagnostics, incident review | Required before shared launch | Platform ops |
+| `monitoring.googleapis.com` | Cloud Monitoring API | uptime checks, metrics, alerts | Required before shared launch | Platform ops |
+| `dns.googleapis.com` | Cloud DNS API | managed domain DNS zones and custom-domain routing support | Required before domain launch | Infrastructure/IaC owner |
+| `compute.googleapis.com` | Compute Engine API | global external Application Load Balancer, static IPs, URL maps, serverless NEGs | Required before domain launch | Infrastructure/IaC owner |
+| `certificatemanager.googleapis.com` | Certificate Manager API | managed wildcard/root certificates | Required before domain launch | Infrastructure/IaC owner |
+| `cloudbilling.googleapis.com` | Cloud Billing API | billing account/project link checks and future project factory | Required before dedicated-project launch; optional for shared-only smoke test if manually verified | Admin bootstrap / project factory |
+| `billingbudgets.googleapis.com` | Cloud Billing Budget API | budgets and cost alerts | Required before broad paid rollout | Platform ops |
+| `bigquery.googleapis.com` | BigQuery API | billing export dataset and cost reporting queries | Required before customer workload cost reporting | Platform ops / billing jobs |
+| `containeranalysis.googleapis.com` | Container Analysis API | vulnerability and image metadata scanning path | Required before broad production rollout | Supply-chain/security owner |
+| `cloudkms.googleapis.com` | Cloud KMS API | optional customer/platform-managed encryption keys | Optional unless CMEK is required | Security owner |
+| `sqladmin.googleapis.com` | Cloud SQL Admin API | AlphaCI-owned database only if AlphaCI later moves its own DB to Cloud SQL | Not required for customer DBs | Platform DB owner if adopted |
+
+Enablement rules:
+
+- Shared launch must not start until WIF, Cloud Run, Artifact Registry, Secret Manager, Logging, and Monitoring are enabled and smoke-tested in `alphaci-20260629`.
+- Domain launch must not start until Cloud DNS, Compute Engine, and Certificate Manager ownership is defined in IaC or an explicit admin bootstrap runbook.
+- Dedicated customer projects must not be product-enabled until Cloud Billing, project factory API enablement, IAM provisioning, Artifact Registry, Secret Manager, Cloud Run, routing, cleanup, and budget behavior are proven end-to-end.
+- Customer database support does not require Cloud SQL because AlphaCI does not manage customer databases; AlphaCI stores and injects customer-provided `DATABASE_URL` and related env vars.
+- If an API is missing during workflow deployment, the workflow should fail with a safe setup error unless that workflow is explicitly authorized to enable the API.
 
 ## GCP Organization Shape
 
@@ -777,13 +1014,10 @@ Set up the shared AlphaCI GCP runtime project:
 - Confirm org and billing account.
 - Use `alphaci-20260629` as the first managed deployment project.
 - Configure Workload Identity Federation for GitHub Actions.
-- Enable required APIs:
-  - Cloud Resource Manager API.
-  - IAM APIs needed for WIF.
-  - Cloud Run API.
-  - Artifact Registry API.
-  - Secret Manager API.
-  - Cloud Billing APIs only if billing automation is in first scope; otherwise record the billing-export deferral owner, reason, and target date.
+- Enable required APIs from the GCP Services/API Matrix, using service IDs and launch stance instead of friendly names only.
+- For shared launch, minimum required APIs are Cloud Resource Manager, Service Usage, IAM, IAM Credentials, STS, Cloud Run, Artifact Registry, Secret Manager, Logging, and Monitoring.
+- For domain launch, also require Cloud DNS, Compute Engine, and Certificate Manager.
+- For billing/cost launch, also require Cloud Billing, Billing Budgets, and BigQuery billing export setup.
 - Create Artifact Registry repositories.
 - Create deployer service accounts.
 - Create runtime service accounts.
@@ -1001,7 +1235,7 @@ Recommended model:
 Why separate services for PR previews:
 
 - Each preview can have isolated env vars, service account, labels, limits, health status, and cleanup lifecycle.
-- Preview URLs can follow AlphaCI's `itsandbox.site` domain model cleanly.
+- Preview URLs can follow AlphaCI's active managed-domain model cleanly, using `itsandbox.site` during launch.
 - Closing a PR can delete the whole preview service without touching production/staging revisions.
 - It avoids mixing customer-facing preview lifecycle with production rollout traffic rules.
 
@@ -1014,8 +1248,8 @@ Why keep revision tags:
 Preview URL pattern:
 
 ```text
-pr-{prNumber}-{appSlug}-{customerSlug}.itsandbox.site
-pr-{prNumber}-api-{appSlug}-{customerSlug}.itsandbox.site
+pr-{prNumber}-{appSlug}-{customerSlug}.{managedDomainBase}
+pr-{prNumber}-api-{appSlug}-{customerSlug}.{managedDomainBase}
 ```
 
 Preview service names:
@@ -1028,7 +1262,7 @@ ac-{customerSlug}-{appSlug}-pr-{prNumber}-api
 Branch preview fallback, if non-PR previews are later supported:
 
 ```text
-br-{branchHash}-{appSlug}-{customerSlug}.itsandbox.site
+br-{branchHash}-{appSlug}-{customerSlug}.{managedDomainBase}
 ac-{customerSlug}-{appSlug}-br-{branchHash}-{slot}
 ```
 
@@ -1120,18 +1354,67 @@ Recommended modes:
 - Certificate Manager wildcard certificate for AlphaCI-managed subdomains.
 - Cloud Run domain mapping only as a simple/dev fallback, not the main product path.
 
+### Load Balancer And Dedicated Project Routing Decision
+
+This is a blocker before production/business dedicated customer projects. The shared launch model can use one load balancer in the shared runtime project. Dedicated customer projects require a deliberate routing topology because serverless NEGs and Cloud Run backends have project/location ownership constraints.
+
+Allowed options to evaluate before implementing dedicated customer routing:
+
+```text
+Option A: shared runtime only at launch
+- one shared load balancer routes active managed-domain subdomains to Cloud Run services in the shared runtime project
+- dedicated customer projects are deferred until the topology below is validated
+
+Option B: central routing project with validated cross-project backend pattern
+- one routing project owns DNS/load balancer/certificates
+- dedicated customer projects own Cloud Run services
+- cross-project service referencing, IAM, Shared VPC, and operational ownership must be proven in a live smoke test before production
+
+Option C: per-customer routing in dedicated projects
+- each dedicated customer project owns its own Cloud Run services and routing resources
+- DNS delegation/CNAME strategy must avoid fighting the global wildcard managed domain
+- cost and certificate limits must be accepted before rollout
+```
+
+Current recommendation:
+
+- Use Option A for Phase 1 and lower/shared tiers.
+- Treat Option B or C as a separate design gate before enabling production/business dedicated customer projects.
+- Do not claim dedicated customer projects are production-ready until a live routing proof shows managed-domain traffic, custom-domain traffic, rollback, and cleanup all work across the chosen topology.
 Domain-management model:
 
-- `itsandbox.site` is the AlphaCI-owned root site for now.
+- `itsandbox.site` is the temporary AlphaCI-owned launch root site for now.
 - The root site is for the AlphaCI product/control plane: public site, dashboard, auth, and docs as needed.
-- Managed customer deployments live under generated subdomains of `itsandbox.site`, similar to Vercel's `vercel.app` model.
+- Managed customer deployments live under generated subdomains of the active AlphaCI managed domain. During launch that domain is `itsandbox.site`, similar to Vercel's `vercel.app` model.
 - Every managed deployment gets an AlphaCI-owned URL immediately after deploy.
 - Customers can later add their own custom domains without losing the AlphaCI-owned fallback URL.
 - Customer custom domains are optional production/business paid-tier aliases added later through a domain-management workflow.
 
+
+Managed-domain cutover model:
+
+- Treat `itsandbox.site` as a temporary launch domain, not a permanent product assumption.
+- Store the active managed domain as configuration and metadata, for example `managedDomainBase=itsandbox.site` now and `managedDomainBase=<future-domain>` later.
+- Store generated URLs as domain records with `domainBase`, `domain`, `domainKind`, `isPrimary`, `isFallback`, `isDeprecated`, and `replacementDomainId` instead of deriving everything from one hardcoded suffix.
+- Keep deployment identity separate from domain identity: customer/app/environment/slot must not change when the managed domain changes.
+- When AlphaCI gets the permanent domain, add it as a second managed domain first, provision wildcard DNS/cert/load-balancer routing, then generate new default URLs on the new domain.
+- Keep old `itsandbox.site` URLs as fallbacks during a defined migration window so existing OAuth callbacks, webhooks, bookmarks, and customer docs do not break immediately.
+- Dashboard should show the current primary AlphaCI URL, any fallback AlphaCI URL, and any customer custom domain separately.
+- New projects should use the newest active managed domain after cutover; existing projects can be migrated lazily or in batches.
+- Do not delete or disable `itsandbox.site` routing until logs show no meaningful traffic or the retention/migration window has ended.
+
+Managed-domain cutover acceptance criteria:
+
+- A specific fallback window is defined before cutover starts, for example 90 days unless changed by launch policy.
+- The plan states whether old managed-domain URLs proxy, redirect, or both during the fallback window.
+- New projects use the newest active managed domain only after wildcard DNS, certificates, load-balancer routing, and dashboard links pass smoke tests.
+- Existing projects get both old and new AlphaCI managed-domain records during migration.
+- OAuth callback, webhook, and customer documentation risks are tracked before disabling the old managed domain.
+- `itsandbox.site` cannot be disabled until traffic logs, audit records, and customer notification state satisfy the retirement gate.
+- Disabling the old domain requires explicit human approval and a rollback plan.
 Default domain behavior:
 
-- AlphaCI owns and controls DNS for `itsandbox.site`.
+- AlphaCI owns and controls DNS for the active managed deployment domain. During launch this is `itsandbox.site`.
 - AlphaCI reserves deployment subdomains to avoid collisions and takeover risk.
 - The default AlphaCI URL should remain stable even after a customer adds a custom domain.
 - Custom domains become aliases/routes to the same deployment, not replacements for the underlying AlphaCI deployment identity.
@@ -1144,7 +1427,7 @@ Default domain behavior:
 Target routing architecture:
 
 ```text
-DNS wildcard: *.itsandbox.site
+DNS wildcard: *.{managedDomainBase}  # launch value: *.itsandbox.site
   -> global static IP
   -> external Application Load Balancer
   -> URL map / host rules
@@ -1152,16 +1435,16 @@ DNS wildcard: *.itsandbox.site
   -> Cloud Run service
 
 Certificate Manager:
-  - itsandbox.site
-  - *.itsandbox.site
+  - {managedDomainBase}      # launch value: itsandbox.site
+  - *.{managedDomainBase}    # launch value: *.itsandbox.site
 ```
 
 Default AlphaCI domain patterns:
 
 ```text
-{appSlug}-{customerSlug}.itsandbox.site
-{slot}-{appSlug}-{customerSlug}.itsandbox.site
-{env}-{slot}-{appSlug}-{customerSlug}.itsandbox.site
+{appSlug}-{customerSlug}.{managedDomainBase}
+{slot}-{appSlug}-{customerSlug}.{managedDomainBase}
+{env}-{slot}-{appSlug}-{customerSlug}.{managedDomainBase}
 ```
 
 Examples:
@@ -1175,9 +1458,9 @@ uat-api-credit-flow-rfm.itsandbox.site
 Recommended first version:
 
 ```text
-prod web: {appSlug}-{customerSlug}.itsandbox.site
-prod api: api-{appSlug}-{customerSlug}.itsandbox.site
-nonprod: {env}-{slot}-{appSlug}-{customerSlug}.itsandbox.site
+prod web: {appSlug}-{customerSlug}.{managedDomainBase}
+prod api: api-{appSlug}-{customerSlug}.{managedDomainBase}
+nonprod: {env}-{slot}-{appSlug}-{customerSlug}.{managedDomainBase}
 ```
 
 Custom customer domain patterns:
@@ -1204,12 +1487,17 @@ Domain data to store:
 
 ```text
 domain
-domainKind: alphaci_default | customer_custom
+domainKind: alphaci_default | alphaci_fallback | customer_custom
 environment
 slot
 gcpProjectId
 cloudRunServiceName
+domainBase
 routingMode: load_balancer | cloud_run_mapping_dev_only
+isPrimary
+isFallback
+isDeprecated
+replacementDomainId
 certificateStatus
 dnsInstructions
 lastVerifiedAt
@@ -1219,16 +1507,16 @@ Implementation notes:
 
 - AlphaCI-owned domains should be automatic and low-friction.
 - Customer custom domains need DNS instructions, verification status, certificate status, and retry behavior.
-- Use the load-balancer path for generated `itsandbox.site` subdomains and production custom domains.
+- Use the load-balancer path for generated AlphaCI managed-domain subdomains and production custom domains.
 - Cloud Run domain mapping may be used only for manual/dev experiments with explicit owner and cleanup date.
 - The dashboard should show both the AlphaCI default URL and any customer custom domain.
 
 Resolved domain decisions:
 
-- Default AlphaCI deployment URLs are app-first: `{appSlug}-{customerSlug}.itsandbox.site`.
+- Default AlphaCI deployment URLs are app-first under the active managed domain, for example `{appSlug}-{customerSlug}.{managedDomainBase}` during launch.
 - Production custom domains are limited to production/business paid tiers at first.
 - OAuth callbacks for AlphaCI platform auth are managed by AlphaCI on the AlphaCI-owned site/dashboard domains.
-- OAuth callbacks for deployed customer apps are customer-owned configuration. AlphaCI stores and injects the required environment variables, shows the default and custom callback URLs in the dashboard, and keeps the `itsandbox.site` URL as a fallback. Customers still own their OAuth provider credentials and redirect URI registration.
+- OAuth callbacks for deployed customer apps are customer-owned configuration. AlphaCI stores and injects the required environment variables, shows the default and custom callback URLs in the dashboard, and keeps the AlphaCI managed-domain URL as a fallback. Customers still own their OAuth provider credentials and redirect URI registration.
 
 ### Phase 5: Cost Tracking and Billing Controls
 
@@ -1245,6 +1533,14 @@ Add platform-level controls before relying on GCP billing data:
 - Periodic BigQuery cost reports.
 
 Billing export is useful for reporting and margin analysis, but it should not be the only enforcement mechanism.
+
+Billing export setup requirements:
+
+- Choose the BigQuery dataset location before enabling billing export.
+- Enable Standard usage cost export and Detailed usage cost export before customer workloads are deployed.
+- Treat billing export as forward-looking; do not assume historical costs before export enablement will be backfilled.
+- Store billing export dataset/project/table names in platform configuration.
+- Add a scheduled cost-import/reporting job after export is enabled, but keep runtime enforcement based on AlphaCI plan limits rather than delayed billing data.
 
 
 ## Customer Lifecycle And Plan Transitions
@@ -1276,7 +1572,7 @@ Default entitlements:
 | Capability | Trial | Lower/shared paid | Production/business paid |
 | --- | --- | --- | --- |
 | Runtime project | Shared | Shared | Dedicated customer project |
-| Default `itsandbox.site` domain | Yes | Yes | Yes |
+| AlphaCI managed-domain URL | Yes | Yes | Yes |
 | Customer custom domain | No | No at first | Yes |
 | Preview deployments | Disabled by default | 1 active preview per app | 5 active previews per app by default |
 | Max instances | Very low | Low/tier-based | Higher/tier-based |
@@ -1289,7 +1585,7 @@ Trial signup journey:
 1. User creates workspace and project.
 2. AlphaCI creates deployment metadata in the shared runtime scope.
 3. Deployments use `alphaci-20260629` or the current shared runtime project.
-4. User gets an AlphaCI-owned default domain under `itsandbox.site`.
+4. User gets an AlphaCI-owned default domain under the active managed domain, using `itsandbox.site` during launch.
 5. User can provide env vars and external service URLs, but AlphaCI does not manage their database.
 6. Trial limits apply to deploy frequency, max services, max instances, image retention, preview count, and runtime size.
 7. Trial resources must have `expiresAt`, owner, labels, and cleanup state.
@@ -1305,7 +1601,7 @@ Trial expiration journey:
 Trial to paid upgrade journey:
 
 1. Billing succeeds and plan changes from `trial` to a paid tier.
-2. Existing shared-project deployments keep their default `itsandbox.site` URLs.
+2. Existing shared-project deployments keep their default AlphaCI managed-domain URLs; `itsandbox.site` URLs remain fallback aliases after a future managed-domain cutover.
 3. If upgraded to lower/shared paid, lift trial limits but keep runtime in the shared project.
 4. If upgraded to production/business paid, start dedicated customer project provisioning.
 5. Dedicated project migration is two-phase: provision and deploy dedicated target first, then move routing after health checks pass.
@@ -1319,7 +1615,7 @@ Lower/shared paid to production/business upgrade journey:
 3. Link billing, enable APIs, create Artifact Registry, service accounts, Secret Manager namespace, and labels.
 4. Deploy the same image or latest approved image to the dedicated project.
 5. Verify health checks and domain routing.
-6. Move default `itsandbox.site` routing to the dedicated target.
+6. Move default managed-domain routing to the dedicated target, including any active and fallback AlphaCI-owned domains.
 7. Enable custom-domain workflow.
 8. Keep shared runtime as rollback until the dedicated target has been healthy for the retention window.
 9. Retire shared services only after verification and manual approval if production traffic was involved.
@@ -1417,7 +1713,7 @@ Lifecycle invariants:
 - Plan downgrade changes entitlements first; it does not immediately delete running production infrastructure.
 - Destructive cleanup needs explicit ownership proof from metadata and labels.
 - Dedicated customer projects require manual approval before deletion.
-- Default `itsandbox.site` URLs should remain stable through upgrade and migration.
+- Default AlphaCI managed-domain URLs should remain stable through upgrade and migration; fallback domains should remain available through the defined retention window.
 - Custom domains are aliases and can be removed without changing the underlying AlphaCI deployment identity.
 - A project over the new downgraded limits may keep running during grace, but new deploys and scale increases are blocked until it fits the plan.
 - Customer-provided external services and databases are never deleted by AlphaCI.
@@ -1513,7 +1809,7 @@ Production should default to GCP-only for new projects once Cloud Run deploy smo
 
 ## Resolved Decisions
 
-1. Default deployment URLs are app-first under `itsandbox.site`.
+1. Default deployment URLs are app-first under the active AlphaCI managed domain; `itsandbox.site` is only the temporary launch domain and must be replaceable later.
 2. Customer custom domains are limited to production/business paid tiers at first.
 3. AlphaCI chooses the OAuth callback policy: AlphaCI manages platform auth callbacks, while customer app OAuth remains customer-owned env/provider configuration.
 4. AlphaCI-owned subdomains come first; custom domains are optional production/business paid-tier aliases added later.
@@ -1532,10 +1828,24 @@ Production should default to GCP-only for new projects once Cloud Run deploy smo
 17. Database architecture uses separate Postgres schemas per service or bounded context; new GCP runtime tables must not be added to `public`, and `env_provisioning` remains a migration compatibility schema.
 18. The GCP migration requires an operational control plane: infrastructure-as-code for stable platform resources, async backend jobs for app/runtime resources, reconciliation, admin approvals, and audited cleanup.
 19. Supply-chain, domain-takeover, quota, notification, disaster-recovery, and admin-tooling requirements are launch blockers, not optional day-two polish.
+20. Dedicated customer project routing is not production-ready until the load-balancer/serverless-NEG topology is chosen and proven with a live smoke test.
+21. Deployment health must be proven with AlphaCI synthetic probes or workflow probes; do not rely on load-balancer backend health checks for serverless NEGs.
+22. `itsandbox.site` is a temporary launch managed domain; a future managed-domain cutover needs fallback duration, redirect/proxy behavior, traffic-retirement gates, and approval rules.
+23. Billing export must be enabled before customer workloads if we want complete cost history for the GCP rollout.
+24. Artifact Registry cleanup must be reviewed in dry-run mode before enabling active deletion.
+25. Phases are non-blocking work tracks: each phase must become independently runnable, while strict gates block promotion to wider rollout rather than all parallel implementation.
 
 ## Remaining Open Questions
 
-None for the current planning scope. AlphaExplora owns and decides first-party product slugs when each product is created, then deploys those products under `10-products` using `ae-<product-slug>-<env>`.
+No product-direction questions are open for the current planning scope. AlphaExplora owns and decides first-party product slugs when each product is created, then deploys those products under `10-products` using `ae-<product-slug>-<env>`.
+
+Implementation questions that must be closed in child plans:
+
+- Which infrastructure-as-code tool owns stable GCP resources after bootstrap?
+- What exact numeric limits apply to trial, lower/shared paid, and production/business paid tiers?
+- Which dedicated-project routing topology will be approved after the shared launch path works?
+- Which secrets, if any, are allowed in GitHub Actions secrets instead of Secret Manager because they are build-only?
+- What exact alert thresholds define stuck provisioning, failed deploy, cleanup backlog, and stale billing export?
 
 ## Current Leaning
 
@@ -1552,7 +1862,7 @@ Recommended default decisions unless later changed:
 - Default region: `asia-southeast1`.
 - Frontend and backend services live in the same GCP project and region by default.
 - AlphaExplora-owned products such as AlphaCI, APICenter, Project Alpha, and Project Beta live under `10-products`; these are first-party products AlphaExplora creates, names, deploys, and owns, not AlphaCI tenants.
-- Domain model: app-first AlphaCI-owned default domains on `itsandbox.site`, routed through wildcard DNS plus a global external Application Load Balancer; customer custom domains are paid-tier aliases added later.
+- Domain model: app-first AlphaCI-owned default domains under the active managed domain; `itsandbox.site` is the temporary launch domain, future managed domains must be configurable, and customer custom domains are paid-tier aliases added later.
 - Custom domains: production/business paid tiers only at first.
 - Cost model: labels plus AlphaCI plan limits plus billing export.
 - Provider policy: GCP-only for new managed deployments; Vercel/Render legacy paths behind feature flags; bring-your-own deployment provider hosting removed.
@@ -1562,6 +1872,10 @@ Recommended default decisions unless later changed:
 - Database model: schema-per-service/bounded-context, with GCP runtime state split across deployment, domain, secret-reference, lifecycle, and audit schemas; `env_provisioning` stays as the legacy compatibility schema during migration.
 - Control plane model: stable shared infrastructure is owned by infrastructure-as-code; customer/app runtime changes run through idempotent async backend jobs with locks, retries, reconciliation, and admin review.
 - Launch-readiness model: supply-chain security, domain takeover protection, customer notifications, disaster recovery, quota registry, and admin operations are required before broad production rollout.
+- Routing readiness model: shared runtime can use the shared load balancer first; dedicated customer project routing requires a separate validated topology decision before production rollout.
+- Health readiness model: deploy success requires synthetic/workflow health probes, not load-balancer backend health for serverless NEGs.
+- Cost readiness model: billing export should be enabled before customer workloads, and Artifact Registry deletion policies must start as dry-runs.
+- Phase execution model: phases can overlap, but every phase must produce a runnable slice and satisfy its own promotion gates before broader rollout.
 
 ## Update Log
 
@@ -1571,8 +1885,8 @@ Recommended default decisions unless later changed:
 - 2026-06-29: Added auth, preflight, static validation, backend, failure-mode, and live smoke test coverage for the GCP workflow path.
 - 2026-06-29: Added provider deprecation policy: feature-flag Vercel/Render as legacy paths and remove bring-your-own deployment provider hosting from the target product model.
 - 2026-06-29: Added Vercel-style domain management model with automatic AlphaCI-owned default URLs and optional customer custom domains.
-- 2026-06-29: Set AlphaCI default managed deployment domain to `itsandbox.site`.
-- 2026-06-29: Clarified that `itsandbox.site` is the AlphaCI root site and generated project subdomains behave like Vercel-style default deployment URLs.
+- 2026-06-29: Set the temporary AlphaCI launch managed deployment domain to `itsandbox.site`.
+- 2026-06-29: Clarified that `itsandbox.site` is the temporary AlphaCI launch root site and generated project subdomains behave like Vercel-style default deployment URLs.
 - 2026-06-29: Accepted wildcard DNS plus global external Application Load Balancer and Certificate Manager as the target production domain architecture.
 - 2026-06-29: Resolved domain, project grouping, dedicated customer project, region, service co-location, OAuth callback, and Artifact Registry layout decisions.
 - 2026-06-29: Accepted the Artifact Registry recommendation: shared repositories for shared/lower tiers and customer-scoped repositories for paid/production dedicated projects.
@@ -1586,3 +1900,9 @@ Recommended default decisions unless later changed:
 - 2026-06-29: Adversarial plan review tightened BYO removal, DB/API cleanup, branch mapping, preview limits, lifecycle grace periods, label naming, audit events, and Cloud Run ingress/domain guardrails.
 - 2026-06-29: Added database schema architecture: schema-per-service/bounded-context, no new GCP runtime tables in `public`, and `env_provisioning` kept as migration compatibility.
 - 2026-06-29: Added operational control plane requirements covering infrastructure ownership, IAM matrix, async provisioning, reconciliation, supply-chain security, domain safety, notifications, DR, quotas, admin tooling, and detailed DB migration work.
+
+- 2026-06-30: Added managed-domain cutover model so `itsandbox.site` remains a temporary launch domain and future AlphaCI managed domains can be added without changing deployment identity.
+- 2026-06-30: Added review hardening for routing topology, synthetic health probes, concrete WIF policy decisions, managed-domain cutover acceptance, billing export timing, Artifact Registry dry-runs, live GCP bootstrap state, and implementation index.
+- 2026-06-30: Added non-blocking phase strategy so phases can overlap as independently runnable slices while strict gates control rollout promotion.
+- 2026-06-30: Added split-doc index, pre-implementation hardening checklist, exact GCP services/API matrix, and implementation questions that must close inside child plans.
+- 2026-06-30: Created actual child split plans under docs/plans/gcp/ and updated the split-doc index statuses from planned to created.
