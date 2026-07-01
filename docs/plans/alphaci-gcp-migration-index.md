@@ -30,7 +30,7 @@ docs/plans/alphaci-gcp-implementation-board.html
 | 1 | Cloud repo and org foundation automation | `docs/plans/gcp/00-org-foundation-automation.md` | Detailed | private cloud repo, folders, baseline projects, IAM boundaries, access matrix, Terraform state |
 | 2 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Detailed | Live deploys, WIF, Artifact Registry, Secret Manager, Cloud Run |
 | 3 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Detailed | Backend runtime metadata, lifecycle state, BYO removal |
-| 4 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | In progress | Local capability service, GCP strategy resolver, and provisioning-job repository slices landed; orchestration, reconciliation, and approvals remain |
+| 4 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | In progress | Local capability service, GCP strategy resolver, provisioning-job repository, fake runtime adapter, and provisioning orchestrator slices landed; reconciliation and approvals remain |
 | 5 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | In progress | Backend caller generation and reusable GCP Cloud Run workflow contract landed; remaining caller-template updates and live smoke test remain |
 | 6 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Detailed | Managed domains, wildcard DNS, load balancer, custom domains |
 | 7 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Detailed | PR services, TTL, preview secrets, cleanup |

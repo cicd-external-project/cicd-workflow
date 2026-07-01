@@ -217,7 +217,7 @@ Block new legacy provider connections locally
 - Modify: `cicd-workflow-be/src/modules/gcp-control/gcp-control.module.ts`
 - Modify: `cicd-workflow-be/src/modules/gcp-control/gcp-control.types.ts`
 
-- [ ] **Step 1: Define the adapter contract**
+- [x] **Step 1: Define the adapter contract**
 
 The adapter contract must express what the backend needs without binding tests to Google SDK classes.
 
@@ -244,7 +244,7 @@ labels
 etag or revision when available
 ```
 
-- [ ] **Step 2: Implement fake adapter**
+- [x] **Step 2: Implement fake adapter**
 
 The fake adapter returns deterministic resource names and stores calls in memory for assertions.
 
@@ -256,7 +256,7 @@ registry: asia-southeast1-docker.pkg.dev/alphaci-shared-dev/alphaci
 serviceUrl: https://alpha-demo-dev-uc.a.run.app
 ```
 
-- [ ] **Step 3: Write orchestrator tests first**
+- [x] **Step 3: Write orchestrator tests first**
 
 Test these cases:
 
@@ -267,7 +267,7 @@ paid dedicated-tier target -> records dedicated-project intent but does not call
 adapter failure -> job becomes failed with retryable error and correlation id
 ```
 
-- [ ] **Step 4: Implement orchestrator**
+- [x] **Step 4: Implement orchestrator**
 
 The orchestrator should:
 
@@ -278,7 +278,7 @@ The orchestrator should:
 - emit audit event metadata if the existing audit service is available in the module
 - return a product-level status object to controllers or workers
 
-- [ ] **Step 5: Wire module provider**
+- [x] **Step 5: Wire module provider**
 
 Use fake adapter by default until live GCP access exists.
 
@@ -293,7 +293,7 @@ Provider rule:
 
 Do not instantiate Google SDK clients in this task.
 
-- [ ] **Step 6: Run verification**
+- [x] **Step 6: Run verification**
 
 Run:
 
@@ -310,7 +310,7 @@ gcp-control tests pass
 no live GCP credentials are required
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 Commit message:
 

@@ -533,7 +533,7 @@
           <h3>Latest Local Prep Updates</h3>
           <ul class="clean">
             <li>GCP Cloud Run reusable workflow, static validator, and workflow documentation are locally prepared.</li>
-            <li>Backend GCP caller generation, strategy resolution, and provisioning job repository slices are locally prepared.</li>
+            <li>Backend GCP caller generation, strategy resolution, provisioning job repository, fake runtime adapter, and provisioning orchestrator slices are locally prepared.</li>
             <li>Frontend BYO/provider-connection creation controls are removed or hidden for the normal product path.</li>
             <li>Backend BYO provider connection creation now returns a migration-specific 410 error, with an expand-only DB trigger guard.</li>
             <li>Access-independent local implementation queue is linked for work that can proceed before GCP permissions are granted.</li>
@@ -659,7 +659,7 @@
       { order: 1, title: "Cloud repo and org foundation automation", file: "gcp/00-org-foundation-automation.md", owner: "foundation", status: "next", blocks: "Folders, projects, IAM, access matrix, Terraform state", next: "Create alphaexplora-cloud private repo" },
       { order: 2, title: "GCP bootstrap and access", file: "gcp/01-bootstrap-access.md", owner: "foundation", status: "planned", blocks: "Live deploys, WIF, Artifact Registry, Secret Manager, Cloud Run", next: "Consume foundation outputs and bootstrap shared runtime" },
       { order: 3, title: "Database expand-contract migration", file: "gcp/02-database-expand-contract.md", owner: "backend", status: "planned", blocks: "Runtime metadata, lifecycle state, BYO removal", next: "Add schema-per-service runtime tables without breaking old provider data" },
-      { order: 4, title: "Backend control plane", file: "gcp/03-backend-control-plane.md", owner: "backend", status: "active", blocks: "Provisioning jobs, idempotency, reconciliation, approvals", next: "Build orchestrator, reconciler, audit events, plan gates, and worker execution" },
+      { order: 4, title: "Backend control plane", file: "gcp/03-backend-control-plane.md", owner: "backend", status: "active", blocks: "Provisioning jobs, idempotency, reconciliation, approvals", next: "Build reconciler, audit events, plan gates, and worker execution" },
       { order: 5, title: "Central workflow replacement", file: "gcp/04-central-workflow-cloud-run.md", owner: "workflow", status: "active", blocks: "Docker build, Artifact Registry push, Cloud Run deploy, health probes", next: "Update remaining caller templates, then run disposable smoke test after GCP access is ready" },
       { order: 6, title: "Domains and routing", file: "gcp/05-domains-routing.md", owner: "backend", status: "planned", blocks: "Managed domains, wildcard DNS, load balancer, custom domains", next: "Wire domain records and foundation-owned routing" },
       { order: 7, title: "Preview deployments", file: "gcp/06-preview-deployments.md", owner: "backend", status: "planned", blocks: "PR services, TTL, preview secrets, cleanup", next: "Add preview target lifecycle and cleanup" },
@@ -730,7 +730,7 @@
       { phase: "00", owner: "foundation", title: "Add foundation Terraform", tasks: ["Add versions, variables, outputs, backend template", "Create folder hierarchy", "Create baseline projects", "Add IAM and API enablement", "Add verification script and runbook"] },
       { phase: "01", owner: "foundation", title: "Bootstrap shared runtime", tasks: ["Write bootstrap runbook", "Add idempotent bootstrap script", "Create WIF, service accounts, registry, smoke secret", "Run approved live smoke test"] },
       { phase: "02", owner: "backend", title: "Database expand-contract", tasks: ["Add runtime schemas", "Create GCP deployment target metadata", "Block new BYO provider rows safely", "Add rollback and validation queries"] },
-      { phase: "03", owner: "backend", title: "Backend control plane", tasks: ["Add provider capability service (local prep done)", "Add strategy resolver (local prep done)", "Complete provisioning job repository (local prep done)", "Add orchestrator and reconciler"] },
+      { phase: "03", owner: "backend", title: "Backend control plane", tasks: ["Add provider capability service (local prep done)", "Add strategy resolver (local prep done)", "Complete provisioning job repository (local prep done)", "Add fake runtime adapter (local prep done)", "Add provisioning orchestrator (local prep done)", "Add reconciler"] },
       { phase: "04", owner: "workflow", title: "Cloud Run workflow", tasks: ["Add static workflow contract tests (local prep done)", "Implement reusable Docker build/push/deploy workflow (local prep done)", "Add workflow documentation (local prep done)", "Update backend caller generation (local prep done)", "Update caller templates", "Run disposable live smoke test"] },
       { phase: "05", owner: "backend", title: "Domains and routing", tasks: ["Add domain reservation", "Add domain records API", "Verify custom domains", "Support managed-domain cutover", "Run shared runtime routing smoke test"] },
       { phase: "06", owner: "backend", title: "Preview deployments", tasks: ["Add preview limits", "Add preview target service", "Generate preview workflows", "Isolate preview secrets", "Add cleanup job"] },
@@ -738,7 +738,7 @@
       { phase: "08", owner: "backend", title: "Billing and lifecycle", tasks: ["Add plan limit tests", "Add lifecycle transition tests", "Implement entitlements", "Wire subscription events", "Add billing export plan"] },
       { phase: "09", owner: "ops", title: "Operations and launch safety", tasks: ["Add launch readiness tests", "Extend audit events", "Add admin operations surface", "Write runbooks", "Add artifact cleanup safety"] },
       { phase: "10", owner: "foundation", title: "Shared to dedicated migration", tasks: ["Add project factory guard tests", "Add migration service tests", "Implement dedicated project factory contract", "Deploy and verify dedicated target", "Cut over routing with rollback"] },
-      { phase: "11", owner: "ops", title: "Access-independent local queue", tasks: ["Create access-independent implementation plan (local prep done)", "Execute backend BYO rejection and database guard (local prep done)", "Execute fake GCP orchestrator and reconciler", "Execute workflow caller-template static integration", "Execute local domain, preview, billing, and admin slices", "Keep cloud repo static-only until GCP access clears"] }
+      { phase: "11", owner: "ops", title: "Access-independent local queue", tasks: ["Create access-independent implementation plan (local prep done)", "Execute backend BYO rejection and database guard (local prep done)", "Execute fake GCP adapter and provisioning orchestrator (local prep done)", "Execute runtime reconciler", "Execute workflow caller-template static integration", "Execute local domain, preview, billing, and admin slices", "Keep cloud repo static-only until GCP access clears"] }
     ];
 
     const accessRows = [
