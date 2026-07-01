@@ -53,11 +53,26 @@ Backend control plane does not own: customer databases, customer OAuth provider 
 GCP_DEPLOYMENTS_ENABLED=false by default
 LEGACY_VERCEL_PROVIDER_ENABLED=false in production target state
 LEGACY_RENDER_PROVIDER_ENABLED=false in production target state
-LEGACY_PROVIDER_CONNECTIONS_ENABLED=false in production target state
+BYO_DEPLOYMENT_PROVIDER_ENABLED=false in production target state
 GCP_DEDICATED_PROJECTS_ENABLED=false until plan 10 acceptance gates pass
 GCP_CUSTOM_DOMAINS_ENABLED=false until plan 05 custom-domain gates pass
 GCP_PREVIEW_DEPLOYMENTS_ENABLED=false until plan 06 gates pass
 ```
+
+## Implementation Progress
+
+Local backend prep completed on `feature/migrate-vercel-render-to-gcp`:
+
+- Added `src/modules/gcp-control` with provider capability reporting and a provisioning job repository backed by `gcp_operations.provisioning_jobs`.
+- Exposed GCP and legacy provider capability state through `/capabilities` as `deploymentProviders`.
+- Added GCP runtime config fields and disabled-by-default rollout flags for shared project config, dedicated projects, custom domains, and preview deployments.
+- Verified with focused Jest suites, typecheck, lint, and existing GCP runtime migration/database guard tests.
+
+Remaining backend work:
+
+- Add full strategy resolver support for GCP targets.
+- Complete the provisioning job repository methods beyond the initial create/claim/retryable-failure slice.
+- Add orchestrator, reconciler, audit events, plan gates, and worker execution.
 
 ## Job State Machine
 
@@ -93,6 +108,8 @@ workspace:{workspaceId}:project:{projectId}:app:{appSlug}:env:{environment}:slot
 
 ### Task 1: Add GCP Provider Capability Tests
 
+Status: Completed for the local prep slice.
+
 Test file: `src/modules/gcp-control/gcp-provider-capabilities.service.spec.ts`
 
 Cases:
@@ -106,6 +123,8 @@ Cases:
 Run: `npm test -- src/modules/gcp-control/gcp-provider-capabilities.service.spec.ts`
 
 ### Task 2: Implement Provider Capability Service
+
+Status: Completed for the local prep slice.
 
 Return shape:
 
@@ -134,6 +153,8 @@ Expected behavior:
 Run: `npm test -- src/modules/env-provisioning/deployment-strategy.resolver.spec.ts`
 
 ### Task 4: Add Provisioning Job Repository
+
+Status: Partially implemented for the local prep slice. The first pass covers idempotent create, next-job claim with lock/attempt increment, and retryable failure/dead-letter safe error handling. The remaining repository methods still need TDD implementation before orchestrator work.
 
 Repository methods:
 

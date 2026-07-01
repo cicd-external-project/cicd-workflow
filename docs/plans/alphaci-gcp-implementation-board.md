@@ -18,6 +18,8 @@ Use it during planning and implementation reviews to view:
 - questions to tune the board
 - links back to source plans
 
+Current implementation note: backend control-plane local prep is in progress. The backend now has GCP provider capability reporting, `/capabilities.deploymentProviders`, GCP runtime config flags, and the first provisioning-job repository slice. Orchestration, reconciliation, and live GCP execution remain blocked behind later tasks and access gates.
+
 The source Markdown plans remain authoritative. The HTML board is a viewer and should be updated whenever plan order, decision status, task ownership, or access requirements change.
 
 Task checkbox state is stored in the browser's localStorage for this file. It is useful for local planning reviews, but it is not a team source of truth until the board is connected to issues or a project tracker.
