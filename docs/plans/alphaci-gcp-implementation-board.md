@@ -22,7 +22,7 @@ Current implementation note: backend, frontend, and central workflow local prep 
 
 The source Markdown plans remain authoritative. The HTML board is a viewer and should be updated whenever plan order, decision status, task ownership, or access requirements change.
 
-Task checkbox state is stored in the browser's localStorage for this file. It is useful for local planning reviews, but it is not a team source of truth until the board is connected to issues or a project tracker.
+Task checkbox state is stored in the browser's localStorage for this file. Tasks labeled `(local prep done)` are counted as complete from the source HTML so the board reflects committed local prep even on a fresh browser. Manual checkbox tracking is useful for local planning reviews, but it is not a team source of truth until the board is connected to issues or a project tracker.
 
 ## Current Board Purpose
 

@@ -529,6 +529,14 @@
           <div class="panel metric"><span>Implementation plans</span><strong id="planCount">0</strong></div>
           <div class="panel metric"><span>Task groups</span><strong id="taskCount">0</strong></div>
         </div>
+        <div class="panel" style="margin-top: 16px">
+          <h3>Latest Local Prep Updates</h3>
+          <ul class="clean">
+            <li>GCP Cloud Run reusable workflow, static validator, and workflow documentation are locally prepared.</li>
+            <li>Backend GCP caller generation, strategy resolution, and provisioning job repository slices are locally prepared.</li>
+            <li>Frontend BYO/provider-connection creation controls are removed or hidden for the normal product path.</li>
+          </ul>
+        </div>
       </section>
 
       <section>
@@ -636,7 +644,7 @@
       </section>
 
       <div class="footer">
-        Last updated: 2026-07-01. This board is a viewer for planning; source Markdown remains authoritative.
+        Last updated: 2026-07-02. This board is a viewer for planning; source Markdown remains authoritative.
       </div>
     </main>
   </div>
@@ -759,7 +767,11 @@
     }
 
     function isTaskDone(group, taskIndex) {
-      return progressState[taskId(group, taskIndex)] === true;
+      const id = taskId(group, taskIndex);
+      if (progressState[id] === true) {
+        return true;
+      }
+      return /\(local prep done\)/i.test(group.tasks[taskIndex]);
     }
 
     function groupStats(group) {
