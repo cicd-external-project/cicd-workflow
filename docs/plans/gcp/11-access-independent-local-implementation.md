@@ -723,18 +723,14 @@ Add local preview deployment lifecycle
 
 **Files:**
 
-- Modify: `cicd-workflow-be/src/modules/subscription/subscription.service.ts`
-- Modify: `cicd-workflow-be/src/modules/subscription/subscription.service.spec.ts`
-- Modify: `cicd-workflow-be/src/modules/usage/usage-quota.service.ts`
-- Modify: `cicd-workflow-be/src/modules/usage/usage-quota.service.spec.ts`
 - Create: `cicd-workflow-be/src/modules/gcp-control/runtime-entitlements.service.ts`
 - Create: `cicd-workflow-be/src/modules/gcp-control/runtime-entitlements.service.spec.ts`
-- Create: `cicd-workflow-be/supabase/migrations/20260702_runtime_entitlements.sql`
-- Create: `cicd-workflow-be/supabase/rollbacks/20260702_runtime_entitlements_down.sql`
+- Modify: `cicd-workflow-be/src/modules/gcp-control/gcp-control.module.ts`
 - Create: `cicd-workflow-fe/src/components/product/runtime-entitlements-panel.tsx`
 - Create: `cicd-workflow-fe/tests/unit/runtime-entitlements-panel.test.tsx`
+- Deferred: subscription event wiring, usage quota enforcement hooks, DB persistence, billing export, and budget alert automation remain for the live-access/full billing phase
 
-- [ ] **Step 1: Write transition matrix tests**
+- [x] **Step 1: Write transition matrix tests**
 
 Test this customer journey:
 
@@ -747,7 +743,7 @@ Test this customer journey:
 | payment failure grace period | deploys may be limited according to policy, no automatic project deletion |
 | cancellation | deploys disabled at end of term, env vars retained according to retention policy |
 
-- [ ] **Step 2: Implement runtime entitlement service**
+- [x] **Step 2: Implement runtime entitlement service**
 
 Inputs:
 
@@ -771,11 +767,11 @@ canCreateDedicatedProject
 limitReasons[]
 ```
 
-- [ ] **Step 3: Connect usage quota checks**
+- [ ] **Step 3: Connect usage quota checks after subscription event wiring is ready**
 
 Use existing usage quota service where possible. The runtime entitlement service should be the product-facing boundary for GCP deployment decisions.
 
-- [ ] **Step 4: Add UI summary**
+- [x] **Step 4: Add UI summary**
 
 Show:
 
@@ -787,17 +783,17 @@ dedicated project availability
 reason when blocked
 ```
 
-- [ ] **Step 5: Run verification**
+- [x] **Step 5: Run verification**
 
 Run:
 
 ```powershell
 cd C:\Codes\cicd-ex\cicd-workflow-be
-npm test -- subscription usage runtime-entitlements --runInBand
+npm test -- runtime-entitlements gcp-previews gcp-control --runInBand
 npm run typecheck
 
 cd C:\Codes\cicd-ex\cicd-workflow-fe
-npm test -- runtime-entitlements-panel --runInBand
+npm test -- runtime-entitlements-panel --runInBand --coverage=false
 ```
 
 Expected:
@@ -807,7 +803,7 @@ trial, upgrade, downgrade, payment failure, and cancellation behavior is explici
 no journey deletes customer projects automatically
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Commit message:
 
