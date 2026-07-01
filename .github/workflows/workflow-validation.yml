@@ -8,6 +8,7 @@ on:
       - "catalog/**"
       - "starter-templates/**"
       - "workflow-templates/**"
+      - "scripts/**"
       - "docs/workflows/**"
       - ".claude/**"
       - "CLAUDE.md"
@@ -70,6 +71,17 @@ jobs:
           fi
 
           exit "$missing"
+
+  validate-gcp-cloud-run-contract:
+    name: "Validate GCP Cloud Run Contract"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Assert GCP Cloud Run workflow contract
+        run: node scripts/validate-gcp-cloud-run-workflow.cjs
 
   validate-granular-templates:
     name: "Validate Granular Templates"

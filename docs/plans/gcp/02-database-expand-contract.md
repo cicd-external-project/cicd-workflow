@@ -4,7 +4,7 @@
 
 **Goal:** Add GCP runtime schemas and tables beside the existing Vercel/Render model so AlphaCI can migrate provider behavior without breaking the currently used database.
 
-**Architecture:** Use schema-per-service / bounded-context schemas. Keep `env_provisioning` as the compatibility schema for legacy Vercel/Render data. Add new GCP runtime tables under dedicated schemas for deployments, domains, secret metadata, lifecycle, provisioning jobs, and migration links. Use expand-contract: create and backfill first, dual-read only where necessary, then remove old paths in a later migration after retention and audit.
+**Architecture:** Use schema-per-service / bounded-context schemas. Keep `env_provisioning` as the compatibility schema for legacy Vercel/Render data. Add new GCP runtime tables under dedicated schemas for deployments, domains, secret metadata, lifecycle, and provisioning jobs. Use expand-contract: create first, dual-read only where necessary, then remove old paths in a later migration after retention and audit.
 
 **Tech Stack:** PostgreSQL, Supabase SQL migrations, NestJS repositories, Jest repository tests, feature flags, migration validation SQL.
 
@@ -14,6 +14,7 @@
 
 - Migrations: `C:\Codes\cicd-ex\cicd-workflow-be\supabase\migrations`
 - Rollbacks: `C:\Codes\cicd-ex\cicd-workflow-be\supabase\rollbacks`
+- Migration verifier: `C:\Codes\cicd-ex\cicd-workflow-be\scripts\verify-gcp-runtime-migration.cjs`
 - Env provisioning module: `C:\Codes\cicd-ex\cicd-workflow-be\src\modules\env-provisioning`
 - Database service: `C:\Codes\cicd-ex\cicd-workflow-be\src\modules\database\database.service.ts`
 - Audit module: `C:\Codes\cicd-ex\cicd-workflow-be\src\modules\audit`
@@ -107,18 +108,14 @@ Purpose: idempotent async jobs for provisioning, deploy orchestration, cleanup, 
 
 Required columns: `id`, `job_type`, `idempotency_key`, `workspace_id`, `project_id`, `deployment_target_id`, `status`, `attempt_count`, `max_attempts`, `locked_at`, `locked_by`, `next_retry_at`, `dead_letter_reason`, `safe_error_code`, `safe_error_message`, `created_at`, `updated_at`.
 
-### `gcp_operations.legacy_migration_links`
-
-Purpose: track old Vercel/Render records mapped to new GCP targets.
-
-Required columns: `legacy_provider`, `legacy_record_schema`, `legacy_record_id`, `new_deployment_target_id`, `migration_state`, `migrated_at`, `verified_at`, `rollback_until`.
-
 ## Files To Create Or Modify
 
 ### Database
 
 - Create `C:\Codes\cicd-ex\cicd-workflow-be\supabase\migrations\20260701_gcp_runtime_expand_contract.sql`
 - Create `C:\Codes\cicd-ex\cicd-workflow-be\supabase\rollbacks\20260701_gcp_runtime_expand_contract_down.sql`
+- Create `C:\Codes\cicd-ex\cicd-workflow-be\src\scripts\gcp-runtime-migration-verifier.ts`
+- Create `C:\Codes\cicd-ex\cicd-workflow-be\scripts\verify-gcp-runtime-migration.cjs`
 - Create `C:\Codes\cicd-ex\cicd-workflow-be\supabase\migrations\20260702_block_new_byo_provider_targets.sql`
 - Create `C:\Codes\cicd-ex\cicd-workflow-be\supabase\rollbacks\20260702_block_new_byo_provider_targets_down.sql`
 
@@ -175,6 +172,21 @@ select column_name from information_schema.columns where table_schema = 'runtime
 ```
 
 Expected: schemas and tables exist; last query returns zero rows.
+
+Verifier command:
+
+```powershell
+$env:GCP_RUNTIME_MIGRATION_VERIFY_DATABASE_URL = "postgres://postgres:postgres@127.0.0.1:54322/postgres"
+npm run db:verify:gcp-runtime-migration
+```
+
+Safety rules:
+
+- Localhost database URLs are allowed by default.
+- Remote database URLs require `GCP_RUNTIME_MIGRATION_VERIFY_ALLOW_REMOTE=true`.
+- Remote database names must include `shadow`, `verify`, `test`, or `local`.
+- The verifier masks database credentials before printing the target URL.
+- Passing the script means apply and rollback executed successfully against the selected disposable database.
 
 ### Task 3: Create The Rollback Migration
 

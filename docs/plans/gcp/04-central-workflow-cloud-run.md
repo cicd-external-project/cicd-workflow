@@ -6,7 +6,7 @@
 
 **Architecture:** The central workflow remains reusable. Caller repositories own branch ordering and `needs`; the reusable GCP workflow owns auth, preflight, build, push, deploy, health probe, output formatting, and safe failure messages. Generated workflow templates call this reusable workflow only for long-lived branches and bounded previews.
 
-**Tech Stack:** GitHub Actions reusable workflows, Google GitHub Actions auth/setup-gcloud actions, Docker Buildx, Artifact Registry, Cloud Run, PowerShell/static YAML tests, workflow docs.
+**Tech Stack:** GitHub Actions reusable workflows, Google GitHub Actions auth/setup-gcloud actions, Docker, Artifact Registry, Cloud Run, Node/static YAML contract tests, workflow docs.
 
 ---
 
@@ -22,9 +22,10 @@
 
 ### `cicd-workflow`
 
-- Create `gcp-cloud-run-deploy.yml`
+- Create `.github/workflows/gcp-cloud-run-deploy.yml`
 - Create `docs/workflows/gcp-cloud-run-deploy.md`
-- Create `scripts/validate-gcp-workflow.ps1`
+- Create `scripts/validate-gcp-cloud-run-workflow.cjs`
+- Modify `.github/workflows/workflow-validation.yml`
 - Modify `docs/workflows/README.md`
 - Modify `workflow-templates/be-nodejs.yml`
 - Modify `workflow-templates/be-nestjs.yml`
@@ -41,26 +42,24 @@
 
 ## Reusable Workflow Contract
 
-Required `workflow_call` inputs:
+Initial reusable workflow skeleton inputs:
 
 ```text
 gcp-project-id
-gcp-project-number
-region
+gcp-region
 workload-identity-provider
 deployer-service-account
 runtime-service-account
-artifact-registry-location
-artifact-registry-repo
+artifact-registry-repository
 image-name
 cloud-run-service-name
-service-slot
 environment
 working-directory
-dockerfile
-health-url
-correlation-id
-allow-api-enable
+checkout-ref
+source-branch
+docker-context
+dockerfile-path
+allow-preview
 ```
 
 Required GitHub permissions:
@@ -71,21 +70,14 @@ permissions:
   id-token: write
 ```
 
-Required outputs:
+Initial skeleton outputs:
 
 ```text
 service-url
-revision-name
-image-digest
-deployment-status
-health-status
-logs-url
-safe-error-code
-safe-error-message
-correlation-id
+image-uri
 ```
 
-No GCP authentication secret is allowed. WIF is mandatory.
+No GCP authentication secret is allowed. WIF is mandatory. Later hardening should add revision name, image digest, safe deployment status, health status, logs URL, safe error code/message, and correlation ID outputs before broad rollout.
 
 ## Job Order
 
@@ -123,26 +115,26 @@ Workflow tests must fail if an unmapped branch can deploy to a long-lived enviro
 
 ### Task 1: Add Static Workflow Contract Tests
 
-Create `scripts/validate-gcp-workflow.ps1` to check:
+Create `scripts/validate-gcp-cloud-run-workflow.cjs` to check:
 
-- `gcp-cloud-run-deploy.yml` uses `workflow_call`.
+- `.github/workflows/gcp-cloud-run-deploy.yml` uses `workflow_call`.
 - Required inputs exist.
 - Required permissions include `id-token: write` and `contents: read`.
 - No input, env var, or secret name requires a service account JSON key.
-- Auth step appears before Docker login, image push, or deploy.
-- Required outputs are emitted.
+- Auth, setup-gcloud, Docker build, Artifact Registry push, Cloud Run deploy, branch/preview gates, and health probe are present.
+- Static key and environment-dump patterns are absent.
 
 Run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-gcp-workflow.ps1
+node scripts/validate-gcp-cloud-run-workflow.cjs
 ```
 
 Expected before workflow implementation: fail with missing workflow file.
 
 ### Task 2: Implement The Reusable Workflow
 
-File: `C:\Codes\cicd-ex\cicd-workflow\gcp-cloud-run-deploy.yml`
+File: `C:\Codes\cicd-ex\cicd-workflow\.github\workflows\gcp-cloud-run-deploy.yml`
 
 Failure rules:
 
@@ -224,8 +216,8 @@ Expected:
 From `C:\Codes\cicd-ex\cicd-workflow`:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-gcp-workflow.ps1
-git diff --check -- gcp-cloud-run-deploy.yml docs/workflows/gcp-cloud-run-deploy.md workflow-templates
+node scripts/validate-gcp-cloud-run-workflow.cjs
+git diff --check -- .github/workflows/gcp-cloud-run-deploy.yml docs/workflows/gcp-cloud-run-deploy.md scripts/validate-gcp-cloud-run-workflow.cjs workflow-templates
 ```
 
 From `C:\Codes\cicd-ex\cicd-workflow-be`:

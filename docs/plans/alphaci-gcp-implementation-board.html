@@ -700,7 +700,7 @@
         owner: "backend",
         severity: "medium",
         blocks: "Promoting the new runtime schemas beyond local code review.",
-        workaround: "Keep migration expand-only and run unit, type, lint, and static SQL checks until a database apply check is available.",
+        workaround: "Run npm run db:verify:gcp-runtime-migration with GCP_RUNTIME_MIGRATION_VERIFY_DATABASE_URL when a local or shadow DB is available; keep the migration expand-only until then.",
         clears: "Migration and rollback apply successfully against a Supabase shadow/local database."
       }
     ];

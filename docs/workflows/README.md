@@ -25,7 +25,17 @@ and mobile should be added later as catalog-backed shapes.
 | [mobile-tests.yml](mobile-tests.md) | primitive check | Run mobile unit tests with coverage. |
 | [security-scan.yml](security-scan.md) | primitive check | Run dependency and source security scans. |
 | [docker-build.yml](docker-build.md) | build | Build, optionally push, and scan Docker images. |
+| [gcp-cloud-run-deploy.yml](gcp-cloud-run-deploy.md) | deploy | Build, push, deploy, and probe a GCP Cloud Run service through WIF. |
 | [workflow-validation.yml](workflow-validation.md) | maintenance | Validate GitHub Actions workflow shape, contract docs, and templates. |
+
+## Legacy Provider Workflows
+
+These remain documented while the GCP migration is in progress, but new managed deployment targets should move to the GCP workflow path.
+
+| Workflow | Purpose |
+| --- | --- |
+| [vercel-deploy.yml](vercel-deploy.md) | Legacy Vercel frontend deploy path. |
+| [render-deploy.yml](render-deploy.md) | Legacy Render image deploy path. |
 
 ## Consumer Templates
 
@@ -63,4 +73,4 @@ Actions access policy.
 - Do not add one template per option combination. Add project types, workflow
   recipes, and supported options to the catalog, then let the backend render the
   selected recipe.
-- Do not reintroduce deploy, promotion, release, E2E, performance, or stack-composition workflows until the baseline is stable.
+- Do not reintroduce promotion, release, E2E, performance, or stack-composition workflows until the baseline is stable.

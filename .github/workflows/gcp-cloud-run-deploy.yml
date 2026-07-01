@@ -1,0 +1,184 @@
+# Contract: docs/workflows/gcp-cloud-run-deploy.md
+name: "Reusable: GCP Cloud Run Deploy"
+
+on:
+  workflow_call:
+    inputs:
+      system-name:
+        required: true
+        type: string
+        description: "System name for display"
+      working-directory:
+        required: false
+        type: string
+        default: "."
+        description: "Project directory"
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+        description: "Optional git ref/SHA to checkout"
+      source-branch:
+        required: false
+        type: string
+        default: ""
+        description: "Source branch. Only test, uat, main, or approved previews may deploy."
+      environment:
+        required: false
+        type: string
+        default: "dev"
+        description: "AlphaCI environment: dev, uat, prod, or preview"
+      gcp-project-id:
+        required: true
+        type: string
+        description: "Target GCP project ID"
+      gcp-region:
+        required: true
+        type: string
+        description: "Target Cloud Run region"
+      workload-identity-provider:
+        required: true
+        type: string
+        description: "GitHub OIDC Workload Identity Provider resource name"
+      deployer-service-account:
+        required: true
+        type: string
+        description: "Service account impersonated by GitHub Actions"
+      artifact-registry-repository:
+        required: true
+        type: string
+        description: "Artifact Registry repository name"
+      image-name:
+        required: true
+        type: string
+        description: "Container image name"
+      cloud-run-service-name:
+        required: true
+        type: string
+        description: "Cloud Run service name"
+      runtime-service-account:
+        required: true
+        type: string
+        description: "Runtime identity attached to Cloud Run"
+      docker-context:
+        required: false
+        type: string
+        default: "."
+        description: "Docker build context relative to working-directory"
+      dockerfile-path:
+        required: false
+        type: string
+        default: "Dockerfile"
+        description: "Dockerfile path relative to working-directory"
+      allow-preview:
+        required: false
+        type: boolean
+        default: false
+        description: "Allow pull request preview deploys"
+    outputs:
+      service-url:
+        description: "Cloud Run service URL"
+        value: ${{ jobs.gcp-cloud-run-deploy.outputs.service-url }}
+      image-uri:
+        description: "Pushed Artifact Registry image URI"
+        value: ${{ jobs.gcp-cloud-run-deploy.outputs.image-uri }}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  gcp-cloud-run-deploy:
+    name: "Deploy ${{ inputs.system-name }} to Cloud Run"
+    if: ${{ contains(fromJSON('["test","uat","main"]'), inputs.source-branch || github.ref_name) || (github.event_name == 'pull_request' && inputs.allow-preview) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      service-url: ${{ steps.service.outputs.url }}
+      image-uri: ${{ steps.image.outputs.uri }}
+    defaults:
+      run:
+        working-directory: ./${{ inputs.working-directory }}
+    env:
+      GCP_PROJECT_ID: ${{ inputs.gcp-project-id }}
+      GCP_REGION: ${{ inputs.gcp-region }}
+      ARTIFACT_REGISTRY_REPOSITORY: ${{ inputs.artifact-registry-repository }}
+      IMAGE_NAME: ${{ inputs.image-name }}
+      CLOUD_RUN_SERVICE_NAME: ${{ inputs.cloud-run-service-name }}
+      RUNTIME_SERVICE_ACCOUNT: ${{ inputs.runtime-service-account }}
+      DOCKER_CONTEXT: ${{ inputs.docker-context }}
+      DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.sha }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ inputs.workload-identity-provider }}
+          service_account: ${{ inputs.deployer-service-account }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Artifact Registry Docker auth
+        shell: bash
+        run: |
+          set +x
+          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Compute image URI
+        id: image
+        shell: bash
+        run: |
+          set +x
+          SAFE_REF="$(printf '%s' '${{ inputs.source-branch || github.ref_name }}' | tr '/[:upper:]' '-[:lower:]')"
+          IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REGISTRY_REPOSITORY}/${IMAGE_NAME}:${SAFE_REF}-${GITHUB_SHA}"
+          echo "uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        shell: bash
+        run: |
+          set +x
+          docker build \
+            --file "${DOCKERFILE_PATH}" \
+            --tag "${{ steps.image.outputs.uri }}" \
+            "${DOCKER_CONTEXT}"
+
+      - name: Push image
+        shell: bash
+        run: |
+          set +x
+          docker push "${{ steps.image.outputs.uri }}"
+
+      - name: Deploy Cloud Run service
+        shell: bash
+        run: |
+          set +x
+          gcloud run deploy "${CLOUD_RUN_SERVICE_NAME}" \
+            --project "${GCP_PROJECT_ID}" \
+            --region "${GCP_REGION}" \
+            --image "${{ steps.image.outputs.uri }}" \
+            --service-account "${RUNTIME_SERVICE_ACCOUNT}" \
+            --platform managed \
+            --no-allow-unauthenticated \
+            --quiet
+
+      - name: Read service URL
+        id: service
+        shell: bash
+        run: |
+          set +x
+          URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE_NAME}" \
+            --project "${GCP_PROJECT_ID}" \
+            --region "${GCP_REGION}" \
+            --format='value(status.url)')"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Probe service health
+        shell: bash
+        run: |
+          set +x
+          curl -fsS "${{ steps.service.outputs.url }}"
