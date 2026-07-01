@@ -7,7 +7,7 @@ on:
       system-name:
         required: true
         type: string
-        description: "System name for display"
+        description: "System name for display and labels"
       working-directory:
         required: false
         type: string
@@ -22,7 +22,7 @@ on:
         required: false
         type: string
         default: ""
-        description: "Source branch. Only test, uat, main, or approved previews may deploy."
+        description: "Source branch. Only test/dev, uat/uat, main/prod, or approved preview may deploy."
       environment:
         required: false
         type: string
@@ -70,18 +70,40 @@ on:
         type: string
         default: "Dockerfile"
         description: "Dockerfile path relative to working-directory"
+      health-path:
+        required: false
+        type: string
+        default: "/"
+        description: "HTTP path to probe after deployment"
+      correlation-id:
+        required: false
+        type: string
+        default: ""
+        description: "Caller-provided correlation ID for deployment history"
       allow-preview:
         required: false
         type: boolean
         default: false
-        description: "Allow pull request preview deploys"
+        description: "Allow explicit preview environment deployments"
     outputs:
       service-url:
         description: "Cloud Run service URL"
         value: ${{ jobs.gcp-cloud-run-deploy.outputs.service-url }}
       image-uri:
-        description: "Pushed Artifact Registry image URI"
+        description: "Pushed Artifact Registry image URI with tag"
         value: ${{ jobs.gcp-cloud-run-deploy.outputs.image-uri }}
+      image-digest:
+        description: "Pushed Artifact Registry image digest"
+        value: ${{ jobs.gcp-cloud-run-deploy.outputs.image-digest }}
+      revision-name:
+        description: "Latest ready Cloud Run revision name"
+        value: ${{ jobs.gcp-cloud-run-deploy.outputs.revision-name }}
+      deployment-status:
+        description: "Safe deployment status"
+        value: ${{ jobs.gcp-cloud-run-deploy.outputs.deployment-status }}
+      correlation-id:
+        description: "Correlation ID used for labels and deployment history"
+        value: ${{ jobs.gcp-cloud-run-deploy.outputs.correlation-id }}
 
 permissions:
   contents: read
@@ -90,16 +112,20 @@ permissions:
 jobs:
   gcp-cloud-run-deploy:
     name: "Deploy ${{ inputs.system-name }} to Cloud Run"
-    if: ${{ contains(fromJSON('["test","uat","main"]'), inputs.source-branch || github.ref_name) || (github.event_name == 'pull_request' && inputs.allow-preview) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
       service-url: ${{ steps.service.outputs.url }}
       image-uri: ${{ steps.image.outputs.uri }}
+      image-digest: ${{ steps.digest.outputs.digest }}
+      revision-name: ${{ steps.service.outputs.revision-name }}
+      deployment-status: ${{ steps.health.outputs.deployment-status }}
+      correlation-id: ${{ steps.metadata.outputs.correlation-id }}
     defaults:
       run:
         working-directory: ./${{ inputs.working-directory }}
     env:
+      SYSTEM_NAME: ${{ inputs.system-name }}
       GCP_PROJECT_ID: ${{ inputs.gcp-project-id }}
       GCP_REGION: ${{ inputs.gcp-region }}
       ARTIFACT_REGISTRY_REPOSITORY: ${{ inputs.artifact-registry-repository }}
@@ -108,11 +134,88 @@ jobs:
       RUNTIME_SERVICE_ACCOUNT: ${{ inputs.runtime-service-account }}
       DOCKER_CONTEXT: ${{ inputs.docker-context }}
       DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
+      HEALTH_PATH: ${{ inputs.health-path }}
+      ENVIRONMENT: ${{ inputs.environment }}
+      SOURCE_BRANCH: ${{ inputs.source-branch }}
+      ALLOW_PREVIEW: ${{ inputs.allow-preview }}
+      CORRELATION_ID: ${{ inputs.correlation-id }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.checkout-ref || github.sha }}
+
+      - name: Validate inputs and branch mapping
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+
+          BRANCH="${SOURCE_BRANCH:-${GITHUB_REF_NAME}}"
+          if [ -z "${BRANCH}" ]; then
+            echo "::error::source-branch is required when github.ref_name is unavailable."
+            exit 1
+          fi
+
+          if [ "${BRANCH}" == "test" ] && [ "${ENVIRONMENT}" == "dev" ]; then
+            :
+          elif [ "${BRANCH}" == "uat" ] && [ "${ENVIRONMENT}" == "uat" ]; then
+            :
+          elif [ "${BRANCH}" == "main" ] && [ "${ENVIRONMENT}" == "prod" ]; then
+            :
+          elif [ "${ENVIRONMENT}" == "preview" ] && [ "${ALLOW_PREVIEW}" == "true" ]; then
+            :
+          else
+            echo "::error::Unsupported branch/environment mapping. Allowed: test->dev, uat->uat, main->prod, or explicit preview with allow-preview=true."
+            exit 1
+          fi
+
+          if [ -z "${GCP_PROJECT_ID}" ] || [ -z "${GCP_REGION}" ] || [ -z "${ARTIFACT_REGISTRY_REPOSITORY}" ]; then
+            echo "::error::GCP project, region, and Artifact Registry repository are required."
+            exit 1
+          fi
+
+          if [[ "${HEALTH_PATH}" != /* ]]; then
+            echo "::error::health-path must start with '/'."
+            exit 1
+          fi
+
+          if [ -z "${CLOUD_RUN_SERVICE_NAME}" ] || [ -z "${RUNTIME_SERVICE_ACCOUNT}" ]; then
+            echo "::error::Cloud Run service name and runtime service account are required."
+            exit 1
+          fi
+
+          sanitize_label() {
+            local value="$1"
+            value="$(printf '%s' "${value}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')"
+            value="${value:0:63}"
+            if [ -z "${value}" ]; then
+              value="unknown"
+            fi
+            printf '%s' "${value}"
+          }
+
+          SAFE_REF="$(sanitize_label "${BRANCH}")"
+          SAFE_SYSTEM="$(sanitize_label "${SYSTEM_NAME}")"
+          SAFE_ENVIRONMENT="$(sanitize_label "${ENVIRONMENT}")"
+          SAFE_CORRELATION="$(sanitize_label "${CORRELATION_ID:-gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}")"
+
+          echo "source-branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "safe-ref=${SAFE_REF}" >> "$GITHUB_OUTPUT"
+          echo "safe-system=${SAFE_SYSTEM}" >> "$GITHUB_OUTPUT"
+          echo "safe-environment=${SAFE_ENVIRONMENT}" >> "$GITHUB_OUTPUT"
+          echo "correlation-id=${SAFE_CORRELATION}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate OIDC permission
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::Missing GitHub OIDC token permission. Caller and reusable workflow must allow id-token: write."
+            exit 1
+          fi
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
@@ -123,9 +226,39 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v3
 
+      - name: Verify GCP deployment target
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+
+          gcloud config set project "${GCP_PROJECT_ID}" --quiet
+          gcloud projects describe "${GCP_PROJECT_ID}" --format="value(projectId)" >/dev/null
+
+          for api in run.googleapis.com artifactregistry.googleapis.com iamcredentials.googleapis.com; do
+            if ! gcloud services list \
+              --project "${GCP_PROJECT_ID}" \
+              --enabled \
+              --filter="config.name=${api}" \
+              --format="value(config.name)" | grep -Fxq "${api}"; then
+              echo "::error::Required API ${api} is not enabled for ${GCP_PROJECT_ID}."
+              exit 1
+            fi
+          done
+
+          gcloud artifacts repositories describe "${ARTIFACT_REGISTRY_REPOSITORY}" \
+            --project "${GCP_PROJECT_ID}" \
+            --location "${GCP_REGION}" \
+            --format="value(name)" >/dev/null
+
+          gcloud iam service-accounts describe "${RUNTIME_SERVICE_ACCOUNT}" \
+            --project "${GCP_PROJECT_ID}" \
+            --format="value(email)" >/dev/null
+
       - name: Configure Artifact Registry Docker auth
         shell: bash
         run: |
+          set -euo pipefail
           set +x
           gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
 
@@ -133,14 +266,15 @@ jobs:
         id: image
         shell: bash
         run: |
+          set -euo pipefail
           set +x
-          SAFE_REF="$(printf '%s' '${{ inputs.source-branch || github.ref_name }}' | tr '/[:upper:]' '-[:lower:]')"
-          IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REGISTRY_REPOSITORY}/${IMAGE_NAME}:${SAFE_REF}-${GITHUB_SHA}"
+          IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REGISTRY_REPOSITORY}/${IMAGE_NAME}:${{ steps.metadata.outputs.safe-ref }}-${GITHUB_SHA}"
           echo "uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
 
       - name: Build image
         shell: bash
         run: |
+          set -euo pipefail
           set +x
           docker build \
             --file "${DOCKERFILE_PATH}" \
@@ -150,35 +284,72 @@ jobs:
       - name: Push image
         shell: bash
         run: |
+          set -euo pipefail
           set +x
           docker push "${{ steps.image.outputs.uri }}"
+
+      - name: Resolve image digest
+        id: digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          DIGEST="$(gcloud artifacts docker images describe "${{ steps.image.outputs.uri }}" --format="value(image_summary.digest)")"
+          if [ -z "${DIGEST}" ]; then
+            echo "::error::Unable to resolve pushed image digest."
+            exit 1
+          fi
+
+          IMAGE_WITHOUT_TAG="${{ steps.image.outputs.uri }}"
+          IMAGE_WITHOUT_TAG="${IMAGE_WITHOUT_TAG%:*}"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "digest-uri=${IMAGE_WITHOUT_TAG}@${DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Cloud Run service
         shell: bash
         run: |
+          set -euo pipefail
           set +x
           gcloud run deploy "${CLOUD_RUN_SERVICE_NAME}" \
             --project "${GCP_PROJECT_ID}" \
             --region "${GCP_REGION}" \
-            --image "${{ steps.image.outputs.uri }}" \
+            --image "${{ steps.digest.outputs.digest-uri }}" \
             --service-account "${RUNTIME_SERVICE_ACCOUNT}" \
             --platform managed \
             --no-allow-unauthenticated \
+            --labels "alphaci_managed=true,alphaci_system=${{ steps.metadata.outputs.safe-system }},alphaci_environment=${{ steps.metadata.outputs.safe-environment }},alphaci_correlation=${{ steps.metadata.outputs.correlation-id }},alphaci_commit=${GITHUB_SHA}" \
             --quiet
 
-      - name: Read service URL
+      - name: Read service URL and revision
         id: service
         shell: bash
         run: |
+          set -euo pipefail
           set +x
           URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE_NAME}" \
             --project "${GCP_PROJECT_ID}" \
             --region "${GCP_REGION}" \
-            --format='value(status.url)')"
+            --format="value(status.url)")"
+          REVISION_NAME="$(gcloud run services describe "${CLOUD_RUN_SERVICE_NAME}" \
+            --project "${GCP_PROJECT_ID}" \
+            --region "${GCP_REGION}" \
+            --format="value(status.latestReadyRevisionName)")"
+
+          if [ -z "${URL}" ] || [ -z "${REVISION_NAME}" ]; then
+            echo "::error::Cloud Run service URL or latest ready revision is missing after deploy."
+            exit 1
+          fi
+
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "revision-name=${REVISION_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Probe service health
+        id: health
         shell: bash
         run: |
+          set -euo pipefail
           set +x
-          curl -fsS "${{ steps.service.outputs.url }}"
+          HEALTH_URL="${{ steps.service.outputs.url }}${HEALTH_PATH}"
+          IDENTITY_TOKEN="$(gcloud auth print-identity-token --audiences="${{ steps.service.outputs.url }}")"
+          curl -fsS -H "Authorization: Bearer ${IDENTITY_TOKEN}" "${HEALTH_URL}" >/dev/null
+          echo "deployment-status=healthy" >> "$GITHUB_OUTPUT"

@@ -502,7 +502,10 @@ jobs:
           done
 
           grep -Fq "validation-api-url:" .github/workflows/validate-subscription.yml
-          grep -Fq 'VALIDATION_API_URL="${{ inputs.validation-api-url }}"' .github/workflows/validate-subscription.yml
+          expression_open='${'
+          expression_open="${expression_open}{"
+          expected_validation_env="VALIDATION_API_URL=\"${expression_open} inputs.validation-api-url }}\""
+          grep -Fq "${expected_validation_env}" .github/workflows/validate-subscription.yml
           if grep -Fq "https://api.implementsprint.com/v1/ci/validate) || true" .github/workflows/validate-subscription.yml; then
             echo "::error file=.github/workflows/validate-subscription.yml::Validation workflow must call the configurable validation-api-url input"
             failed=1

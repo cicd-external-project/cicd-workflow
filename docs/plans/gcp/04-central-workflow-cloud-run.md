@@ -122,15 +122,18 @@ Local backend generator prep completed on `feature/migrate-vercel-render-to-gcp`
 - Generated deploy jobs call `cicd-external-project/cicd-workflow/.github/workflows/gcp-cloud-run-deploy.yml@<centralWorkflowRef>`.
 - Generated GCP jobs pass project, region, WIF provider, deployer service account, runtime service account, Artifact Registry repo, image, Cloud Run service, Docker context, Dockerfile path, branch source, environment, and preview allowance.
 - Focused tests prove generated GCP workflows do not reference `VERCEL_TOKEN`, `RENDER_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, or service-account JSON keys.
+- `cicd-workflow` now has the reusable `.github/workflows/gcp-cloud-run-deploy.yml`, contract docs, and `scripts/validate-gcp-cloud-run-workflow.cjs`.
+- The reusable workflow validates branch/environment mapping, OIDC permission availability, target project, required APIs, Artifact Registry repo, runtime service account, pushed image digest, Cloud Run ready revision, and private health probe before reporting `deployment-status=healthy`.
+- `workflow-validation.yml` runs the GCP Cloud Run contract validator, and the local repo-wide actionlint check passes after escaping a literal GitHub expression in validation shell code.
 
 Remaining workflow work:
 
-- Create the reusable `.github/workflows/gcp-cloud-run-deploy.yml` in `cicd-workflow`.
-- Add static workflow validation script and workflow docs.
 - Update older template files and project scaffold generation where still applicable.
 - Run the disposable live smoke test after WIF and GCP access are available.
 
 ### Task 1: Add Static Workflow Contract Tests
+
+Status: Completed for the local reusable-workflow prep slice.
 
 Create `scripts/validate-gcp-cloud-run-workflow.cjs` to check:
 
@@ -151,6 +154,8 @@ Expected before workflow implementation: fail with missing workflow file.
 
 ### Task 2: Implement The Reusable Workflow
 
+Status: Completed for the local reusable-workflow prep slice. Live behavior still requires the disposable GCP smoke test.
+
 File: `C:\Codes\cicd-ex\cicd-workflow\.github\workflows\gcp-cloud-run-deploy.yml`
 
 Failure rules:
@@ -165,6 +170,8 @@ Failure rules:
 - Secret values, tokens, and raw provider errors are never printed.
 
 ### Task 3: Add Workflow Documentation
+
+Status: Completed for the local reusable-workflow prep slice.
 
 File: `docs/workflows/gcp-cloud-run-deploy.md`
 

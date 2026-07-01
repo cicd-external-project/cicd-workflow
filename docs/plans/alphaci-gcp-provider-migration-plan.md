@@ -1957,3 +1957,4 @@ Recommended default decisions unless later changed:
 - 2026-07-01: Added an external blocker register for GitHub private-repo branch protection limits, GCP reauthentication, missing org/folder IAM, and local Supabase migration-apply verification.
 - 2026-07-01: Added local prep for the migration blocker: `npm run db:verify:gcp-runtime-migration` applies and rolls back the GCP runtime migration against an explicit local/shadow database URL.
 - 2026-07-01: Added local prep progress for GCP strategy resolution, provisioning-job repository completion, backend GCP Cloud Run caller generation, and frontend removal of normal BYO/provider-connection creation controls.
+- 2026-07-02: Added the reusable GCP Cloud Run deploy workflow, static contract validator, workflow documentation, digest-based deploy outputs, private health probe, and stricter branch/environment mapping.

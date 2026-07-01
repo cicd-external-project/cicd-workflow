@@ -103,8 +103,10 @@ Grant these to `alphaci-gha-deployer@<runtime-project>.iam.gserviceaccount.com`.
 | --- | --- | --- |
 | Deployer service account | `roles/iam.workloadIdentityUser` granted to the GitHub WIF principal | Allows GitHub Actions OIDC to impersonate the deployer service account. |
 | Target Cloud Run services or runtime project | `roles/run.developer` | Create/update Cloud Run services, revisions, and jobs used by AlphaCI deployments. |
+| Target Cloud Run services, or runtime project during bootstrap only | `roles/run.invoker` | Allows the workflow's authenticated post-deploy health probe to call private Cloud Run service URLs. Prefer service-scoped binding after services exist. |
 | Target Artifact Registry repo | `roles/artifactregistry.writer` | Push built container images. |
 | Runtime service account only | `roles/iam.serviceAccountUser` | Deploy Cloud Run services that run as `alphaci-shared-runtime`. |
+| Probe identity service account only | `roles/iam.serviceAccountOpenIdTokenCreator` or narrower approved equivalent | Allows `gcloud auth print-identity-token` for authenticated Cloud Run health probes without using JSON keys. |
 | Runtime project | `roles/serviceusage.serviceUsageConsumer` | Required for some deployment flows and quota consumption checks. |
 | Runtime project | `roles/logging.viewer` | Read deployment logs for health verification if workflow reports diagnostics. |
 | Runtime project | `roles/monitoring.viewer` | Read metrics for smoke checks if workflow reports diagnostics. |
@@ -215,7 +217,7 @@ Start with predefined roles for the first bootstrap because they are easier to a
 
 | Candidate custom role | Base permissions to inspect from audit logs | Intended principal |
 | --- | --- | --- |
-| `AlphaCICloudRunDeployer` | Cloud Run service create/update/get/list, operation get, Artifact Registry upload/download, service account actAs on approved runtime identity. | `alphaci-gha-deployer@...` |
+| `AlphaCICloudRunDeployer` | Cloud Run service create/update/get/list, operation get, Artifact Registry upload/download, service account actAs on approved runtime identity, service invoke for health probes, and approved OIDC token minting for the probe identity. | `alphaci-gha-deployer@...` |
 | `AlphaCISecretVersionWriter` | Add/list/get/disable secret versions on approved AlphaCI secret names, no payload access except write path. | `alphaci-control-plane@...` |
 | `AlphaCIDomainRouter` | Manage URL maps, backend services, serverless NEGs, certificate map entries, DNS records in approved managed zones. | Future `alphaci-domain-manager@...` |
 | `AlphaCIPreviewJanitor` | Delete preview Cloud Run services, delete preview images, disable/destroy preview secret versions. | `alphaci-preview-cleaner@...` |
