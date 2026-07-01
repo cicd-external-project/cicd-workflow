@@ -1,59 +1,105 @@
 {
-  "schemaVersion": 1,
-  "recipes": [
-    {
-      "id": "frontend-standard-ci",
-      "label": "Frontend Standard CI",
-      "description": "Validate access, run frontend tests, lint, security scan, and build.",
-      "supportedProjectTypes": ["nextjs-app", "react-spa"],
-      "templateByProjectType": {
-        "nextjs-app": "fe-nextjs",
-        "react-spa": "fe-react"
-      },
-      "mandatoryJobs": ["validate-access"],
-      "supportedOptions": {
-        "lint": true,
-        "unit": true,
-        "build": true,
-        "coverage": true,
-        "security": true,
-        "docker": false,
-        "e2e": false
-      },
-      "optionJobs": {
-        "lint": "lint",
-        "unit": "unit-tests",
-        "build": "build",
-        "coverage": "unit-tests",
-        "security": "security"
-      }
-    },
-    {
-      "id": "backend-api-ci",
-      "label": "Backend API CI",
-      "description": "Validate access, run backend tests, lint, security scan, and optional Docker build.",
-      "supportedProjectTypes": ["nestjs-api", "nodejs-api"],
-      "templateByProjectType": {
-        "nestjs-api": "be-nestjs",
-        "nodejs-api": "be-nodejs"
-      },
-      "mandatoryJobs": ["validate-access"],
-      "supportedOptions": {
-        "lint": true,
-        "unit": true,
-        "build": false,
-        "coverage": true,
-        "security": true,
-        "docker": true,
-        "e2e": false
-      },
-      "optionJobs": {
-        "lint": "lint",
-        "unit": "unit-tests",
-        "coverage": "unit-tests",
-        "security": "security",
-        "docker": "docker"
-      }
-    }
-  ]
+    "schemaVersion":  1,
+    "recipes":  [
+                    {
+                        "id":  "frontend-standard-ci",
+                        "label":  "Frontend Standard CI",
+                        "description":  "Validate access, run frontend tests, lint, security scan, build, and deploy to GCP Cloud Run.",
+                        "supportedProjectTypes":  [
+                                                      "nextjs-app",
+                                                      "react-spa"
+                                                  ],
+                        "templateByProjectType":  {
+                                                      "nextjs-app":  "fe-nextjs",
+                                                      "react-spa":  "fe-react"
+                                                  },
+                        "mandatoryJobs":  [
+                                              "validate-access"
+                                          ],
+                        "supportedOptions":  {
+                                                 "lint":  true,
+                                                 "unit":  true,
+                                                 "build":  true,
+                                                 "coverage":  true,
+                                                 "security":  true,
+                                                 "docker":  true,
+                                                 "e2e":  false
+                                             },
+                        "optionJobs":  {
+                                           "lint":  "lint",
+                                           "unit":  "unit-tests",
+                                           "build":  "build",
+                                           "coverage":  "unit-tests",
+                                           "security":  "security",
+                                           "deploy":  "deploy-gcp"
+                                       },
+                        "deploymentProvider":  "gcp-cloud-run",
+                        "legacyProviders":  [
+
+                                            ],
+                        "requiresSecrets":  [
+
+                                            ],
+                        "requiresVariables":  [
+                                                  "ALPHACI_GCP_PROJECT_ID",
+                                                  "ALPHACI_GCP_REGION",
+                                                  "ALPHACI_GCP_WORKLOAD_IDENTITY_PROVIDER",
+                                                  "ALPHACI_GCP_DEPLOYER_SERVICE_ACCOUNT",
+                                                  "ALPHACI_ARTIFACT_REGISTRY_REPOSITORY",
+                                                  "ALPHACI_CLOUD_RUN_SERVICE",
+                                                  "ALPHACI_RUNTIME_SERVICE_ACCOUNT",
+                                                  "ALPHACI_IMAGE_NAME"
+                                              ]
+                    },
+                    {
+                        "id":  "backend-api-ci",
+                        "label":  "Backend API CI",
+                        "description":  "Validate access, run backend tests, lint, security scan, and deploy to GCP Cloud Run.",
+                        "supportedProjectTypes":  [
+                                                      "nestjs-api",
+                                                      "nodejs-api"
+                                                  ],
+                        "templateByProjectType":  {
+                                                      "nestjs-api":  "be-nestjs",
+                                                      "nodejs-api":  "be-nodejs"
+                                                  },
+                        "mandatoryJobs":  [
+                                              "validate-access"
+                                          ],
+                        "supportedOptions":  {
+                                                 "lint":  true,
+                                                 "unit":  true,
+                                                 "build":  false,
+                                                 "coverage":  true,
+                                                 "security":  true,
+                                                 "docker":  true,
+                                                 "e2e":  false
+                                             },
+                        "optionJobs":  {
+                                           "lint":  "lint",
+                                           "unit":  "unit-tests",
+                                           "coverage":  "unit-tests",
+                                           "security":  "security",
+                                           "docker":  "docker",
+                                           "deploy":  "deploy-gcp"
+                                       },
+                        "deploymentProvider":  "gcp-cloud-run",
+                        "legacyProviders":  [
+
+                                            ],
+                        "requiresSecrets":  [
+
+                                            ],
+                        "requiresVariables":  [
+                                                  "ALPHACI_GCP_PROJECT_ID",
+                                                  "ALPHACI_GCP_REGION",
+                                                  "ALPHACI_GCP_WORKLOAD_IDENTITY_PROVIDER",
+                                                  "ALPHACI_GCP_DEPLOYER_SERVICE_ACCOUNT",
+                                                  "ALPHACI_ARTIFACT_REGISTRY_REPOSITORY",
+                                                  "ALPHACI_CLOUD_RUN_SERVICE",
+                                                  "ALPHACI_RUNTIME_SERVICE_ACCOUNT",
+                                                  "ALPHACI_IMAGE_NAME"
+                                              ]
+                    }
+                ]
 }

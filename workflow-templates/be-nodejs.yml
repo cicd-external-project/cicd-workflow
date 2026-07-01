@@ -1,4 +1,4 @@
-﻿# Granular backend Node.js workflow.
+# Granular backend Node.js workflow.
 # Copy to .github/workflows/backend-ci.yml in a consumer repository.
 
 name: "Backend CI"
@@ -43,6 +43,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
   packages: write
   security-events: write
 
@@ -51,7 +52,7 @@ env:
 
 jobs:
   validate-access:
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/validate-subscription.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/validate-subscription.yml@feature/migrate-vercel-render-to-gcp
     with:
       validation-api-url: ${{ env.CI_VALIDATE_URL }}
     secrets:
@@ -59,7 +60,7 @@ jobs:
 
   unit-tests:
     needs: validate-access
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/backend-tests.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/backend-tests.yml@feature/migrate-vercel-render-to-gcp
     with:
       working-directory: ${{ inputs.service_path || '.' }}
       system-name: ${{ inputs.service_name || 'backend' }}
@@ -70,7 +71,7 @@ jobs:
 
   lint:
     needs: validate-access
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/lint-check.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/lint-check.yml@feature/migrate-vercel-render-to-gcp
     with:
       working-directory: ${{ inputs.service_path || '.' }}
       system-name: ${{ inputs.service_name || 'backend' }}
@@ -78,7 +79,7 @@ jobs:
 
   security:
     needs: validate-access
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/security-scan.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/security-scan.yml@feature/migrate-vercel-render-to-gcp
     with:
       working-directory: ${{ inputs.service_path || '.' }}
       system-name: ${{ inputs.service_name || 'backend' }}
@@ -88,10 +89,33 @@ jobs:
   docker:
     needs: [validate-access, unit-tests, lint, security]
     if: ${{ inputs.docker_image != '' }}
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/docker-build.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/docker-build.yml@feature/migrate-vercel-render-to-gcp
     with:
       working-directory: ${{ inputs.service_path || '.' }}
       image-name: ${{ inputs.docker_image }}
       push-image: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
       scan-vulnerabilities: true
-
+  deploy-gcp:
+    needs: [validate-access, unit-tests, lint, security]
+    if: ${{ github.event_name == 'push' && (github.ref_name == 'test' || github.ref_name == 'uat' || github.ref_name == 'main') }}
+    uses: cicd-external-project/cicd-workflow/.github/workflows/gcp-cloud-run-deploy.yml@feature/migrate-vercel-render-to-gcp
+    with:
+      system-name: ${{ inputs.service_name || 'backend' }}
+      working-directory: ${{ inputs.service_path || '.' }}
+      checkout-ref: ${{ github.sha }}
+      source-branch: ${{ github.ref_name }}
+      environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'uat' && 'uat' || 'dev' }}
+      gcp-project-id: ${{ vars.ALPHACI_GCP_PROJECT_ID }}
+      gcp-region: ${{ vars.ALPHACI_GCP_REGION || 'asia-southeast1' }}
+      workload-identity-provider: ${{ vars.ALPHACI_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      deployer-service-account: ${{ vars.ALPHACI_GCP_DEPLOYER_SERVICE_ACCOUNT }}
+      artifact-registry-repository: ${{ vars.ALPHACI_ARTIFACT_REGISTRY_REPOSITORY }}
+      image-name: ${{ vars.ALPHACI_IMAGE_NAME || inputs.service_name || 'backend' }}
+      cloud-run-service-name: ${{ vars.ALPHACI_CLOUD_RUN_SERVICE }}
+      runtime-service-account: ${{ vars.ALPHACI_RUNTIME_SERVICE_ACCOUNT }}
+      docker-context: ${{ inputs.service_path || '.' }}
+      dockerfile-path: ${{ vars.ALPHACI_DOCKERFILE_PATH || 'Dockerfile' }}
+      allow-preview: false
+      health-path: ${{ vars.ALPHACI_HEALTH_PATH || '/health' }}
+      correlation-id: ${{ github.run_id }}-${{ github.run_attempt }}
+    secrets: inherit

@@ -9,6 +9,17 @@ const workflowPath = path.join(
   'gcp-cloud-run-deploy.yml',
 );
 
+const callerTemplatePaths = [
+  'workflow-templates/fe-nextjs.yml',
+  'workflow-templates/fe-react.yml',
+  'workflow-templates/be-nodejs.yml',
+  'workflow-templates/be-nestjs.yml',
+].map((templatePath) => path.join(repoRoot, templatePath));
+const allTemplatePaths = [
+  ...callerTemplatePaths,
+  path.join(repoRoot, 'workflow-templates/standalone-lint.yml'),
+];
+
 const requiredInputs = [
   'system-name',
   'working-directory',
@@ -103,6 +114,63 @@ for (const [label, pattern] of forbiddenPatterns) {
   }
 }
 
+
+for (const templatePath of callerTemplatePaths) {
+  const relativeTemplatePath = path.relative(repoRoot, templatePath);
+  if (!fs.existsSync(templatePath)) {
+    fail(`missing caller template ${relativeTemplatePath}`);
+    continue;
+  }
+
+  const template = fs.readFileSync(templatePath, 'utf8');
+  const callerRequirements = [
+    ['GCP deploy job', /deploy-gcp:/],
+    ['central GCP reusable workflow', /gcp-cloud-run-deploy\.yml@/],
+    ['test dependency before deploy', /needs:\s*\[[^\]]*(unit-tests|test)[^\]]*\]/],
+    ['branch to environment mapping', /github\.ref_name\s*==\s*'main'\s*&&\s*'prod'.*github\.ref_name\s*==\s*'uat'\s*&&\s*'uat'.*'dev'/s],
+    ['GCP project variable', /gcp-project-id:\s*\$\{\{\s*vars\.ALPHACI_GCP_PROJECT_ID\s*\}\}/],
+    ['GCP region variable', /gcp-region:\s*\$\{\{\s*vars\.ALPHACI_GCP_REGION\s*\|\|\s*'asia-southeast1'\s*\}\}/],
+    ['Artifact Registry variable', /artifact-registry-repository:\s*\$\{\{\s*vars\.ALPHACI_ARTIFACT_REGISTRY_REPOSITORY\s*\}\}/],
+    ['Cloud Run service variable', /cloud-run-service-name:\s*\$\{\{\s*vars\.ALPHACI_CLOUD_RUN_SERVICE\s*\}\}/],
+    ['runtime service account variable', /runtime-service-account:\s*\$\{\{\s*vars\.ALPHACI_RUNTIME_SERVICE_ACCOUNT\s*\}\}/],
+    ['WIF provider variable', /workload-identity-provider:\s*\$\{\{\s*vars\.ALPHACI_GCP_WORKLOAD_IDENTITY_PROVIDER\s*\}\}/],
+    ['deployer service account variable', /deployer-service-account:\s*\$\{\{\s*vars\.ALPHACI_GCP_DEPLOYER_SERVICE_ACCOUNT\s*\}\}/],
+  ];
+
+  for (const [label, pattern] of callerRequirements) {
+    if (!pattern.test(template)) {
+      fail(`${relativeTemplatePath} missing ${label}`);
+    }
+  }
+
+  for (const [label, pattern] of forbiddenPatterns) {
+    if (pattern.test(template)) {
+      fail(`${relativeTemplatePath} forbidden ${label}`);
+    }
+  }
+
+  for (const [label, pattern] of [
+    ['Vercel token', /VERCEL_TOKEN|vercel-deploy/i],
+    ['Render API key', /RENDER_API_KEY|render-deploy/i],
+    ['static gcloud key auth', /gcloud\s+auth\s+activate-service-account/i],
+  ]) {
+    if (pattern.test(template)) {
+      fail(`${relativeTemplatePath} forbidden ${label}`);
+    }
+  }
+}
+for (const templatePath of allTemplatePaths) {
+  const relativeTemplatePath = path.relative(repoRoot, templatePath);
+  const template = fs.readFileSync(templatePath, 'utf8');
+  for (const [label, pattern] of [
+    ['old central workflow repo', /Tone-Lloyd-Sir-Catubag-CICD\/central-workflow/i],
+    ['old stable ref during GCP migration', /@v1\b/],
+  ]) {
+    if (pattern.test(template)) {
+      fail(`${relativeTemplatePath} forbidden ${label}`);
+    }
+  }
+}
 if (!process.exitCode) {
   console.log('GCP Cloud Run workflow contract passed');
 }

@@ -1,4 +1,4 @@
-﻿# Granular standalone lint workflow.
+# Granular standalone lint workflow.
 # Copy to .github/workflows/lint.yml in a consumer repository.
 
 name: "Lint"
@@ -34,7 +34,7 @@ env:
 
 jobs:
   validate-access:
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/validate-subscription.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/validate-subscription.yml@feature/migrate-vercel-render-to-gcp
     with:
       validation-api-url: ${{ env.CI_VALIDATE_URL }}
     secrets:
@@ -42,9 +42,8 @@ jobs:
 
   lint:
     needs: validate-access
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/lint-check.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/lint-check.yml@feature/migrate-vercel-render-to-gcp
     with:
       working-directory: ${{ inputs.service_path || '.' }}
       system-name: ${{ inputs.service_name || 'app' }}
       node-version: ${{ inputs.node_version || 24 }}
-

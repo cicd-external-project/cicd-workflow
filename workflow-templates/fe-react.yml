@@ -1,4 +1,4 @@
-﻿# Granular frontend React workflow.
+# Granular frontend React workflow.
 # Copy to .github/workflows/frontend-ci.yml in a consumer repository.
 
 name: "Frontend CI"
@@ -38,6 +38,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
   security-events: write
 
 env:
@@ -45,7 +46,7 @@ env:
 
 jobs:
   validate-access:
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/validate-subscription.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/validate-subscription.yml@feature/migrate-vercel-render-to-gcp
     with:
       validation-api-url: ${{ env.CI_VALIDATE_URL }}
     secrets:
@@ -53,7 +54,7 @@ jobs:
 
   unit-tests:
     needs: validate-access
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/frontend-tests.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/frontend-tests.yml@feature/migrate-vercel-render-to-gcp
     with:
       working-directory: ${{ inputs.service_path || '.' }}
       system-name: ${{ inputs.service_name || 'frontend' }}
@@ -63,7 +64,7 @@ jobs:
 
   lint:
     needs: validate-access
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/lint-check.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/lint-check.yml@feature/migrate-vercel-render-to-gcp
     with:
       working-directory: ${{ inputs.service_path || '.' }}
       system-name: ${{ inputs.service_name || 'frontend' }}
@@ -71,7 +72,7 @@ jobs:
 
   security:
     needs: validate-access
-    uses: Tone-Lloyd-Sir-Catubag-CICD/central-workflow/.github/workflows/security-scan.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/security-scan.yml@feature/migrate-vercel-render-to-gcp
     with:
       working-directory: ${{ inputs.service_path || '.' }}
       system-name: ${{ inputs.service_name || 'frontend' }}
@@ -93,4 +94,27 @@ jobs:
           cache-dependency-path: "**/package-lock.json"
       - run: npm ci --ignore-scripts
       - run: npm run build
-
+  deploy-gcp:
+    needs: [validate-access, unit-tests, lint, security, build]
+    if: ${{ github.event_name == 'push' && (github.ref_name == 'test' || github.ref_name == 'uat' || github.ref_name == 'main') }}
+    uses: cicd-external-project/cicd-workflow/.github/workflows/gcp-cloud-run-deploy.yml@feature/migrate-vercel-render-to-gcp
+    with:
+      system-name: ${{ inputs.service_name || 'frontend' }}
+      working-directory: ${{ inputs.service_path || '.' }}
+      checkout-ref: ${{ github.sha }}
+      source-branch: ${{ github.ref_name }}
+      environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'uat' && 'uat' || 'dev' }}
+      gcp-project-id: ${{ vars.ALPHACI_GCP_PROJECT_ID }}
+      gcp-region: ${{ vars.ALPHACI_GCP_REGION || 'asia-southeast1' }}
+      workload-identity-provider: ${{ vars.ALPHACI_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      deployer-service-account: ${{ vars.ALPHACI_GCP_DEPLOYER_SERVICE_ACCOUNT }}
+      artifact-registry-repository: ${{ vars.ALPHACI_ARTIFACT_REGISTRY_REPOSITORY }}
+      image-name: ${{ vars.ALPHACI_IMAGE_NAME || inputs.service_name || 'frontend' }}
+      cloud-run-service-name: ${{ vars.ALPHACI_CLOUD_RUN_SERVICE }}
+      runtime-service-account: ${{ vars.ALPHACI_RUNTIME_SERVICE_ACCOUNT }}
+      docker-context: ${{ inputs.service_path || '.' }}
+      dockerfile-path: ${{ vars.ALPHACI_DOCKERFILE_PATH || 'Dockerfile' }}
+      allow-preview: false
+      health-path: ${{ vars.ALPHACI_HEALTH_PATH || '/' }}
+      correlation-id: ${{ github.run_id }}-${{ github.run_attempt }}
+    secrets: inherit

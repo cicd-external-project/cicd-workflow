@@ -1,6 +1,14 @@
 {
-  "name": "Backend Node.js",
-  "description": "Granular Node.js backend workflow using central reusable checks.",
-  "categories": ["backend", "nodejs", "ci"],
-  "filePatterns": ["package.json"]
+    "name":  "Backend Node.js",
+    "description":  "Granular Node.js backend workflow using central reusable checks and GCP Cloud Run deployment.",
+    "categories":  [
+                       "backend",
+                       "nodejs",
+                       "ci",
+                       "gcp",
+                       "cloud-run"
+                   ],
+    "filePatterns":  [
+                         "package.json"
+                     ]
 }

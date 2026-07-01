@@ -1,121 +1,165 @@
 {
-  "schemaVersion": 1,
-  "repoShapes": [
-    {
-      "id": "single-app",
-      "label": "Single App",
-      "enabled": true,
-      "description": "One repository contains one app or service."
-    },
-    {
-      "id": "monorepo",
-      "label": "Monorepo",
-      "enabled": false,
-      "description": "One repository contains multiple services or packages."
-    },
-    {
-      "id": "fullstack",
-      "label": "Fullstack",
-      "enabled": false,
-      "description": "One repository contains a paired frontend and backend."
-    },
-    {
-      "id": "library",
-      "label": "Library",
-      "enabled": false,
-      "description": "One repository contains a package or shared library."
-    },
-    {
-      "id": "mobile",
-      "label": "Mobile",
-      "enabled": false,
-      "description": "One repository contains a mobile application."
-    }
-  ],
-  "projectTypes": [
-    {
-      "id": "nextjs-app",
-      "label": "Next.js App",
-      "runtime": "node",
-      "language": "typescript",
-      "framework": "nextjs",
-      "starterPath": "starter-templates/nextjs-app",
-      "repoShapes": ["single-app"],
-      "reservedRepoShapes": ["monorepo", "fullstack"],
-      "defaultRecipe": "frontend-standard-ci",
-      "allowedRecipes": ["frontend-standard-ci"],
-      "defaultOptions": {
-        "lint": true,
-        "unit": true,
-        "build": true,
-        "coverage": true,
-        "security": true,
-        "docker": false,
-        "e2e": false
-      }
-    },
-    {
-      "id": "react-spa",
-      "label": "React SPA",
-      "runtime": "node",
-      "language": "typescript",
-      "framework": "react",
-      "starterPath": "starter-templates/react-spa",
-      "repoShapes": ["single-app"],
-      "reservedRepoShapes": ["monorepo", "fullstack"],
-      "defaultRecipe": "frontend-standard-ci",
-      "allowedRecipes": ["frontend-standard-ci"],
-      "defaultOptions": {
-        "lint": true,
-        "unit": true,
-        "build": true,
-        "coverage": true,
-        "security": true,
-        "docker": false,
-        "e2e": false
-      }
-    },
-    {
-      "id": "nestjs-api",
-      "label": "NestJS API",
-      "runtime": "node",
-      "language": "typescript",
-      "framework": "nestjs",
-      "starterPath": "starter-templates/nestjs-api",
-      "repoShapes": ["single-app"],
-      "reservedRepoShapes": ["monorepo", "fullstack"],
-      "defaultRecipe": "backend-api-ci",
-      "allowedRecipes": ["backend-api-ci"],
-      "defaultOptions": {
-        "lint": true,
-        "unit": true,
-        "build": false,
-        "coverage": true,
-        "security": true,
-        "docker": false,
-        "e2e": false
-      }
-    },
-    {
-      "id": "nodejs-api",
-      "label": "Node.js API",
-      "runtime": "node",
-      "language": "javascript",
-      "framework": "nodejs",
-      "starterPath": "starter-templates/nodejs-api",
-      "repoShapes": ["single-app"],
-      "reservedRepoShapes": ["monorepo", "fullstack"],
-      "defaultRecipe": "backend-api-ci",
-      "allowedRecipes": ["backend-api-ci"],
-      "defaultOptions": {
-        "lint": true,
-        "unit": true,
-        "build": false,
-        "coverage": true,
-        "security": true,
-        "docker": false,
-        "e2e": false
-      }
-    }
-  ]
+    "schemaVersion":  1,
+    "repoShapes":  [
+                       {
+                           "id":  "single-app",
+                           "label":  "Single App",
+                           "enabled":  true,
+                           "description":  "One repository contains one app or service."
+                       },
+                       {
+                           "id":  "monorepo",
+                           "label":  "Monorepo",
+                           "enabled":  false,
+                           "description":  "One repository contains multiple services or packages."
+                       },
+                       {
+                           "id":  "fullstack",
+                           "label":  "Fullstack",
+                           "enabled":  false,
+                           "description":  "One repository contains a paired frontend and backend."
+                       },
+                       {
+                           "id":  "library",
+                           "label":  "Library",
+                           "enabled":  false,
+                           "description":  "One repository contains a package or shared library."
+                       },
+                       {
+                           "id":  "mobile",
+                           "label":  "Mobile",
+                           "enabled":  false,
+                           "description":  "One repository contains a mobile application."
+                       }
+                   ],
+    "projectTypes":  [
+                         {
+                             "id":  "nextjs-app",
+                             "label":  "Next.js App",
+                             "runtime":  "node",
+                             "language":  "typescript",
+                             "framework":  "nextjs",
+                             "starterPath":  "starter-templates/nextjs-app",
+                             "repoShapes":  [
+                                                "single-app"
+                                            ],
+                             "reservedRepoShapes":  [
+                                                        "monorepo",
+                                                        "fullstack"
+                                                    ],
+                             "defaultRecipe":  "frontend-standard-ci",
+                             "allowedRecipes":  [
+                                                    "frontend-standard-ci"
+                                                ],
+                             "defaultOptions":  {
+                                                    "lint":  true,
+                                                    "unit":  true,
+                                                    "build":  true,
+                                                    "coverage":  true,
+                                                    "security":  true,
+                                                    "docker":  true,
+                                                    "e2e":  false
+                                                },
+                             "deploymentProvider":  "gcp-cloud-run",
+                             "legacyProviders":  [
+
+                                                 ]
+                         },
+                         {
+                             "id":  "react-spa",
+                             "label":  "React SPA",
+                             "runtime":  "node",
+                             "language":  "typescript",
+                             "framework":  "react",
+                             "starterPath":  "starter-templates/react-spa",
+                             "repoShapes":  [
+                                                "single-app"
+                                            ],
+                             "reservedRepoShapes":  [
+                                                        "monorepo",
+                                                        "fullstack"
+                                                    ],
+                             "defaultRecipe":  "frontend-standard-ci",
+                             "allowedRecipes":  [
+                                                    "frontend-standard-ci"
+                                                ],
+                             "defaultOptions":  {
+                                                    "lint":  true,
+                                                    "unit":  true,
+                                                    "build":  true,
+                                                    "coverage":  true,
+                                                    "security":  true,
+                                                    "docker":  true,
+                                                    "e2e":  false
+                                                },
+                             "deploymentProvider":  "gcp-cloud-run",
+                             "legacyProviders":  [
+
+                                                 ]
+                         },
+                         {
+                             "id":  "nestjs-api",
+                             "label":  "NestJS API",
+                             "runtime":  "node",
+                             "language":  "typescript",
+                             "framework":  "nestjs",
+                             "starterPath":  "starter-templates/nestjs-api",
+                             "repoShapes":  [
+                                                "single-app"
+                                            ],
+                             "reservedRepoShapes":  [
+                                                        "monorepo",
+                                                        "fullstack"
+                                                    ],
+                             "defaultRecipe":  "backend-api-ci",
+                             "allowedRecipes":  [
+                                                    "backend-api-ci"
+                                                ],
+                             "defaultOptions":  {
+                                                    "lint":  true,
+                                                    "unit":  true,
+                                                    "build":  false,
+                                                    "coverage":  true,
+                                                    "security":  true,
+                                                    "docker":  true,
+                                                    "e2e":  false
+                                                },
+                             "deploymentProvider":  "gcp-cloud-run",
+                             "legacyProviders":  [
+
+                                                 ]
+                         },
+                         {
+                             "id":  "nodejs-api",
+                             "label":  "Node.js API",
+                             "runtime":  "node",
+                             "language":  "javascript",
+                             "framework":  "nodejs",
+                             "starterPath":  "starter-templates/nodejs-api",
+                             "repoShapes":  [
+                                                "single-app"
+                                            ],
+                             "reservedRepoShapes":  [
+                                                        "monorepo",
+                                                        "fullstack"
+                                                    ],
+                             "defaultRecipe":  "backend-api-ci",
+                             "allowedRecipes":  [
+                                                    "backend-api-ci"
+                                                ],
+                             "defaultOptions":  {
+                                                    "lint":  true,
+                                                    "unit":  true,
+                                                    "build":  false,
+                                                    "coverage":  true,
+                                                    "security":  true,
+                                                    "docker":  true,
+                                                    "e2e":  false
+                                                },
+                             "deploymentProvider":  "gcp-cloud-run",
+                             "legacyProviders":  [
+
+                                                 ]
+                         }
+                     ]
 }

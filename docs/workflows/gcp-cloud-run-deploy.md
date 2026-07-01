@@ -84,7 +84,7 @@ Feature branches do not create long-lived Cloud Run services by default.
 jobs:
   deploy-gcp-backend:
     needs: [build, production-gate]
-    uses: cicd-external-project/cicd-workflow/.github/workflows/gcp-cloud-run-deploy.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/gcp-cloud-run-deploy.yml@feature/migrate-vercel-render-to-gcp
     permissions:
       contents: read
       id-token: write
@@ -113,7 +113,7 @@ jobs:
 jobs:
   deploy-gcp-frontend:
     needs: [build, production-gate]
-    uses: cicd-external-project/cicd-workflow/.github/workflows/gcp-cloud-run-deploy.yml@v1
+    uses: cicd-external-project/cicd-workflow/.github/workflows/gcp-cloud-run-deploy.yml@feature/migrate-vercel-render-to-gcp
     permissions:
       contents: read
       id-token: write
@@ -169,4 +169,4 @@ Run this from the repository root:
 node scripts/validate-gcp-cloud-run-workflow.cjs
 ```
 
-The contract test checks required inputs, WIF permissions, preflight checks, digest deployment, branch/preview gates, private health probing, safe outputs, and forbidden static-key patterns.
+The contract test checks required inputs, WIF permissions, preflight checks, digest deployment, branch/preview gates, private health probing, safe outputs, generated caller-template deploy jobs, repository-variable wiring, and forbidden static-key or legacy-provider patterns.

@@ -1,6 +1,17 @@
 {
-  "name": "Backend NestJS",
-  "description": "Granular NestJS backend workflow using central reusable checks.",
-  "categories": ["backend", "nestjs", "ci"],
-  "filePatterns": ["nest-cli.json", "tsconfig.build.json", "src/main.ts", "package.json"]
+    "name":  "Backend NestJS",
+    "description":  "Granular NestJS backend workflow using central reusable checks and GCP Cloud Run deployment.",
+    "categories":  [
+                       "backend",
+                       "nestjs",
+                       "ci",
+                       "gcp",
+                       "cloud-run"
+                   ],
+    "filePatterns":  [
+                         "nest-cli.json",
+                         "tsconfig.build.json",
+                         "src/main.ts",
+                         "package.json"
+                     ]
 }

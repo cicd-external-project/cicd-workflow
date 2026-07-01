@@ -414,7 +414,7 @@ Add local GCP runtime reconciliation
 - Modify: `cicd-workflow/docs/workflows/README.md`
 - Modify: `cicd-workflow/docs/workflows/gcp-cloud-run-deploy.md`
 
-- [ ] **Step 1: Add static tests for generated caller shape**
+- [x] **Step 1: Add static tests for generated caller shape**
 
 Extend the validator so it checks:
 
@@ -425,7 +425,7 @@ caller does not contain VERCEL_TOKEN, RENDER_API_KEY, GCP service account JSON, 
 caller maps test/dev/uat/main exactly to approved target environments
 ```
 
-- [ ] **Step 2: Update caller templates**
+- [x] **Step 2: Update caller templates**
 
 Each app template should call the GCP reusable workflow after tests pass. Keep legacy provider deploy jobs feature-flagged or disabled in the generated output while the migration branch is active.
 
@@ -448,7 +448,7 @@ deploy-gcp:
 
 If GitHub expression syntax cannot safely express the ternary chain in this format, use the existing workflow's approved environment mapping pattern.
 
-- [ ] **Step 3: Update recipe metadata**
+- [x] **Step 3: Update recipe metadata**
 
 Catalog entries should show:
 
@@ -459,7 +459,7 @@ requiresSecrets: []
 requiresVariables: ALPHACI_GCP_PROJECT_ID, ALPHACI_CLOUD_RUN_SERVICE, ALPHACI_ARTIFACT_REGISTRY_REPOSITORY, ALPHACI_IMAGE_NAME
 ```
 
-- [ ] **Step 4: Run verification**
+- [x] **Step 4: Run verification**
 
 Run:
 
@@ -482,7 +482,7 @@ static validator passes
 no GCP JSON key auth appears in generated workflow templates
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message:
 
