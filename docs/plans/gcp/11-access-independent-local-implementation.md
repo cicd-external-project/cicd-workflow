@@ -42,7 +42,7 @@ Authoritative phase map:
 - `cicd-workflow-be/src/modules/gcp-control/provisioning-jobs.repository.ts` and specs exist for local provisioning job persistence.
 - `cicd-workflow-be/src/modules/workflows/staged-workflow.builder.ts` includes staged GCP Cloud Run caller generation.
 - `cicd-workflow-be/supabase/migrations/20260701_gcp_runtime_expand_contract.sql` and rollback exist.
-- `cicd-workflow-be/scripts/verify-gcp-runtime-migration.cjs` exists but needs a disposable database URL before apply verification can be trusted.
+- `cicd-workflow-be/scripts/verify-gcp-runtime-migration.cjs` exists, fails safely without a URL, reports migration/rollback files, masks the database URL, and performs table checks when a disposable database URL is provided.
 - `cicd-workflow-fe` hides or removes normal BYO/provider-connection creation controls when legacy provider connections are disabled.
 - `alphaexplora-cloud` exists locally with Terraform foundation skeletons, modules, repo checks, and cloud runbooks.
 - `cicd-workflow-be/src/modules/domains` and `cicd-workflow-fe/src/components/product/project-domains-panel.tsx` exist for local domain reservation, custom-domain verification contracts, and dashboard display without DNS access.
@@ -999,7 +999,7 @@ Harden cloud repo static checks
 - Modify: `cicd-workflow-be/src/scripts/gcp-runtime-migration-verifier.spec.ts`
 - Modify: `cicd-workflow-be/docs/deployment-provisioning.md`
 
-- [ ] **Step 1: Improve verifier failure messages**
+- [x] **Step 1: Improve verifier failure messages**
 
 Verifier must print:
 
@@ -1013,7 +1013,7 @@ confirmation that no production/shared URL should be used
 
 It must not print the database URL value.
 
-- [ ] **Step 2: Add test for missing URL**
+- [x] **Step 2: Add test for missing URL**
 
 Expected output:
 
@@ -1022,7 +1022,7 @@ GCP_RUNTIME_MIGRATION_VERIFY_DATABASE_URL is required for apply verification.
 Use a local or disposable shadow database. Do not point this at production or shared staging.
 ```
 
-- [ ] **Step 3: Run without URL**
+- [x] **Step 3: Run without URL**
 
 Run:
 
@@ -1058,7 +1058,7 @@ rollback applies
 post-rollback checks pass
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message:
 

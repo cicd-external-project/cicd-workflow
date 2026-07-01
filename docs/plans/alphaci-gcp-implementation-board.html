@@ -536,6 +536,7 @@
             <li>Backend GCP caller generation, strategy resolution, provisioning job repository, fake runtime adapter, provisioning orchestrator, and runtime reconciler slices are locally prepared.</li>
             <li>Frontend BYO/provider-connection creation controls are removed or hidden for the normal product path.</li>
             <li>Backend BYO provider connection creation now returns a migration-specific 410 error, with an expand-only DB trigger guard.</li>
+            <li>The GCP runtime migration verifier fails safely without a URL, masks DB targets, and checks runtime tables when a disposable DB is supplied.</li>
             <li>Local domain reservation, custom-domain verification contracts, and the project domains panel are prepared without DNS access.</li>
             <li>Local preview limits, target planning, fake cleanup intent, generated preview workflow jobs, and the preview deployments panel are prepared without Cloud Run access.</li>
             <li>Local runtime entitlement decisions and the runtime entitlements panel are prepared without billing export or live GCP access.</li>
@@ -716,7 +717,7 @@
         owner: "backend",
         severity: "medium",
         blocks: "Promoting the new runtime schemas beyond local code review.",
-        workaround: "Run npm run db:verify:gcp-runtime-migration with GCP_RUNTIME_MIGRATION_VERIFY_DATABASE_URL when a local or shadow DB is available; keep the migration expand-only until then.",
+        workaround: "Verifier fails safely without a URL and masks DB targets; run npm run db:verify:gcp-runtime-migration with GCP_RUNTIME_MIGRATION_VERIFY_DATABASE_URL when a local or shadow DB is available; keep the migration expand-only until then.",
         clears: "Migration and rollback apply successfully against a Supabase shadow/local database."
       },
       {
@@ -741,7 +742,7 @@
       { phase: "00", owner: "foundation", title: "Create private cloud repo", tasks: ["Create alphaexplora-cloud", "Restrict writes and admin access", "Add CODEOWNERS and branch protection", "Block committed credentials and Terraform state"] },
       { phase: "00", owner: "foundation", title: "Add foundation Terraform", tasks: ["Add versions, variables, outputs, backend template", "Create folder hierarchy", "Create baseline projects", "Add IAM and API enablement", "Add verification script and runbook"] },
       { phase: "01", owner: "foundation", title: "Bootstrap shared runtime", tasks: ["Write bootstrap runbook", "Add idempotent bootstrap script", "Create WIF, service accounts, registry, smoke secret", "Run approved live smoke test"] },
-      { phase: "02", owner: "backend", title: "Database expand-contract", tasks: ["Add runtime schemas", "Create GCP deployment target metadata", "Block new BYO provider rows safely", "Add rollback and validation queries"] },
+      { phase: "02", owner: "backend", title: "Database expand-contract", tasks: ["Add runtime schemas (local prep done)", "Create GCP deployment target metadata (local prep done)", "Block new BYO provider rows safely (local prep done)", "Harden disposable migration verifier (local prep done)", "Run disposable DB apply/rollback verification"] },
       { phase: "03", owner: "backend", title: "Backend control plane", tasks: ["Add provider capability service (local prep done)", "Add strategy resolver (local prep done)", "Complete provisioning job repository (local prep done)", "Add fake runtime adapter (local prep done)", "Add provisioning orchestrator (local prep done)", "Add reconciler (local prep done)"] },
       { phase: "04", owner: "workflow", title: "Cloud Run workflow", tasks: ["Add static workflow contract tests (local prep done)", "Implement reusable Docker build/push/deploy workflow (local prep done)", "Add workflow documentation (local prep done)", "Update backend caller generation (local prep done)", "Update caller templates (local prep done)", "Run disposable live smoke test"] },
       { phase: "05", owner: "backend", title: "Domains and routing", tasks: ["Add domain reservation (local prep done)", "Add domain records API (local prep done)", "Verify custom domains with fake DNS verifier (local prep done)", "Add frontend domain panel (local prep done)", "Support managed-domain cutover", "Run shared runtime routing smoke test"] },
@@ -750,7 +751,7 @@
       { phase: "08", owner: "backend", title: "Billing and lifecycle", tasks: ["Add plan limit tests (local prep done)", "Add lifecycle transition tests (local prep done)", "Implement runtime entitlements (local prep done)", "Add runtime entitlements panel (local prep done)", "Wire subscription events", "Add billing export plan"] },
       { phase: "09", owner: "ops", title: "Operations and launch safety", tasks: ["Add launch readiness tests (local prep done)", "Extend audit events (local prep done)", "Add admin operations surface (local prep done)", "Write runbooks", "Add artifact cleanup safety"] },
       { phase: "10", owner: "foundation", title: "Shared to dedicated migration", tasks: ["Add project factory guard tests", "Add migration service tests", "Implement dedicated project factory contract", "Deploy and verify dedicated target", "Cut over routing with rollback"] },
-      { phase: "11", owner: "ops", title: "Access-independent local queue", tasks: ["Create access-independent implementation plan (local prep done)", "Execute backend BYO rejection and database guard (local prep done)", "Execute fake GCP adapter and provisioning orchestrator (local prep done)", "Execute runtime reconciler (local prep done)", "Execute workflow caller-template static integration (local prep done)", "Execute local domain management slice (local prep done)", "Execute local preview deployment slice (local prep done)", "Execute local billing lifecycle slice (local prep done)", "Execute local admin/readiness slice (local prep done)", "Keep cloud repo static-only until GCP access clears"] }
+      { phase: "11", owner: "ops", title: "Access-independent local queue", tasks: ["Create access-independent implementation plan (local prep done)", "Execute backend BYO rejection and database guard (local prep done)", "Execute fake GCP adapter and provisioning orchestrator (local prep done)", "Execute runtime reconciler (local prep done)", "Execute workflow caller-template static integration (local prep done)", "Execute local domain management slice (local prep done)", "Execute local preview deployment slice (local prep done)", "Execute local billing lifecycle slice (local prep done)", "Execute local admin/readiness slice (local prep done)", "Execute disposable DB verifier hardening (local prep done)", "Keep cloud repo static-only until GCP access clears"] }
     ];
 
     const accessRows = [
