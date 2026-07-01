@@ -13,22 +13,28 @@ This document is intentionally provisional. Update it as product, security, cost
 
 ## Current Recommendation
 
-Start with one shared AlphaCI-managed GCP project for the first implementation:
+Start by creating the separate private `alphaexplora-cloud` repository for GCP organization foundation, then launch the shared AlphaCI-managed runtime project:
 
 ```text
-alphaci-20260629
+00-org-foundation-automation
+  -> private alphaexplora-cloud repo
+  -> folders, baseline projects, labels, IAM boundaries, Terraform state, project-factory skeleton
+  -> shared runtime bootstrap
+  -> Cloud Run deployments in shared runtime
 ```
 
-Design the data model and naming as if every deployment can move to a dedicated GCP project later. Do not hardcode the shared project as a global assumption.
+Use `alphaci-20260629` as the current seed/shared project while the foundation automation is created, but do not let it become a hardcoded permanent assumption.
+
+Design the data model, folder layout, and naming as if every deployment can move to a dedicated GCP project later. Automate the folder/project foundation from the start, but keep customer-dedicated project creation product-disabled until routing, billing, cleanup, quota, and admin approval gates pass.
 
 Recommended first path:
 
 ```text
-Shared GCP project now
+Private alphaexplora-cloud repo and Terraform-owned org/folder/project foundation now
+Shared runtime launch after foundation bootstrap
 Tenant/project abstraction from day one
-Dedicated customer projects later for paid or production workloads
+Dedicated customer projects product-enabled later for paid or production workloads
 ```
-
 ## Master Plan And Split-Doc Index
 
 This file remains the master decision source until implementation plans are split out.
@@ -39,11 +45,22 @@ Index file:
 docs/plans/alphaci-gcp-migration-index.md
 ```
 
+Implementation board:
+
+```text
+docs/plans/alphaci-gcp-implementation-board.html
+```
+
 Split rule:
 
 - Keep product decisions, invariants, resolved decisions, and open questions in this master plan.
 - Put implementation details in focused child plans once work starts.
 - Every child plan must link back to this master plan and the index.
+- Keep the implementation board aligned with this master plan and the index; the board is for viewing, not the decision source.
+- GCP IAM requests and role creation must stay aligned with `docs/plans/gcp/gcp-iam-access-request-matrix.md`.
+- Live org-level Terraform, billing IAM, DNS, certificate, load balancer, and admin `gcloud` scripts belong in `alphaexplora-cloud`, not in AlphaCI product repos.
+- Keep cloud IaC split by ownership scope inside `alphaexplora-cloud`: org/global IaC owns the AlphaExplora organization, folders, baseline projects, shared DNS/networking, billing export, WIF foundations, and shared platform services; product/project IaC owns AlphaCI-specific runtime resources such as shared runtime repos, Cloud Run service baselines, app-level service accounts, project-specific secrets metadata, and future dedicated customer project factory outputs.
+- Do not mix org/global IaC and AlphaCI project-specific IaC in the same Terraform root or apply workflow. Global changes need cloud-operator approval; AlphaCI project-specific changes can be reviewed with product owners after the global foundation outputs exist.
 - If a child plan changes a decision, update this master plan first.
 - Do not let child plans duplicate contradictory defaults; the master plan wins unless explicitly updated.
 
@@ -51,21 +68,22 @@ Planned child plans:
 
 | Order | Area | Child plan | Status |
 | --- | --- | --- | --- |
-| 1 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Detailed |
-| 2 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Detailed |
-| 3 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | Detailed |
-| 4 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | Detailed |
-| 5 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Detailed |
-| 6 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Detailed |
-| 7 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | Detailed |
-| 8 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Detailed |
-| 9 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed |
-| 10 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Detailed |
-
+| 1 | Cloud repo and org foundation automation | `docs/plans/gcp/00-org-foundation-automation.md` | Detailed |
+| 2 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Detailed |
+| 3 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Detailed |
+| 4 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | Detailed |
+| 5 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | Detailed |
+| 6 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Detailed |
+| 7 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Detailed |
+| 8 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | Detailed |
+| 9 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Detailed |
+| 10 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed |
+| 11 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Detailed |
 ## Implementation Readiness Index
 
 Use this index to split the master plan into implementation work. Do not start broad coding from this document alone; convert each area into a scoped implementation plan with tests and rollback gates.
 
+0. Cloud repo and org foundation automation: private `alphaexplora-cloud` repo, Terraform-owned folders, baseline projects, IAM boundaries, labels, billing link policy, remote state, verification scripts, access request matrix, and project-factory skeleton.
 1. GCP bootstrap and access: enabled APIs, WIF, service accounts, IAM matrix, Artifact Registry, Secret Manager, Cloud Run smoke deploy, billing export, budget alerts.
 2. Database expand-contract migration: new runtime schemas/tables, compatibility links, feature flags, backfills, validation queries, rollback migrations.
 3. Backend control plane: async jobs, idempotency, locks, reconciliation, audit events, admin approvals, safe error model.
@@ -74,6 +92,18 @@ Use this index to split the master plan into implementation work. Do not start b
 6. Preview deployments: PR service lifecycle, TTL, limits, preview-scoped secrets, cleanup, fork policy.
 7. Legacy provider deprecation: Vercel/Render feature flags, UI/API removal, legacy credential retention and cleanup, tracked migration state.
 8. Operations and launch safety: quota registry, DR runbooks, incident playbooks, notifications, cost reporting, admin tooling.
+
+## IaC Ownership Boundary
+
+`alphaexplora-cloud` is the single cloud infrastructure repository, but it must not become one giant Terraform root. Split IaC by blast radius and approval scope:
+
+| Scope | Examples | Owner gate | Terraform shape |
+| --- | --- | --- | --- |
+| Org/global IaC | Organization folders, baseline projects, billing links, WIF foundations, shared DNS/networking, wildcard certificates, load balancer foundation, billing export | Cloud operators / org admin | Separate org/global stacks |
+| Product/project IaC | AlphaCI shared runtime Artifact Registry, Cloud Run service baselines, app service accounts, AlphaCI Secret Manager containers, per-product outputs, smoke-test resources | Cloud operators plus AlphaCI product owner | Separate AlphaCI project stacks |
+| Customer/dedicated IaC | Dedicated customer project factory outputs, customer runtime baseline, dedicated routing attachments | Cloud operators plus manual customer-project gate | Disabled stack/module until dedicated-project gates pass |
+
+AlphaCI backend automation can consume outputs and request runtime actions, but it must not directly mutate org folders, billing links, DNS zones, load balancer foundations, WIF pools, or broad IAM. Project-specific IaC can move faster than org/global IaC, but only after the dependency outputs are available and versioned.
 
 ## Key Argument
 
@@ -120,6 +150,8 @@ Ownership language clarification:
 Non-negotiable invariants:
 
 - No static GCP service account JSON keys in GitHub, app config, logs, or local docs. Use Workload Identity Federation only.
+- Every GCP identity, group, service account, and broad predefined role must be listed in `docs/plans/gcp/gcp-iam-access-request-matrix.md` before it is requested or granted.
+- The actual GCP organization/foundation implementation must live in a separate private `alphaexplora-cloud` repo. AlphaCI repos consume outputs and must not own company-wide Terraform state or org-level admin scripts.
 - New managed deployments use GCP Cloud Run only. Vercel and Render remain legacy migration paths behind feature flags.
 - Bring-your-own deployment provider hosting is removed from the target product surface. Customers can bring env vars, custom domains, and external services, but not Vercel/Render/provider-hosting credentials.
 - AlphaCI does not manage customer databases. AlphaCI stores and injects customer-provided env vars such as `DATABASE_URL`.
@@ -868,7 +900,7 @@ alphaexplora.com Organization
 |   |   |-- ae-project-beta-stg
 |   |   |-- ae-project-beta-dev
 |
-|-- 20-alphaci-customer-workloads
+|-- 20-customer-runtime
 |   |-- shared
 |   |   |-- ac-shared-prod
 |   |   |-- ac-shared-dev
@@ -892,7 +924,7 @@ Folder meaning:
 - `00-company-platform` is for AlphaExplora organization-level administration, security, billing, and identity projects.
 - `10-products` is for first-party AlphaExplora products that the company builds and owns, such as AlphaCI, APICenter, Project Alpha, and Project Beta.
 - Each product folder owns its own environment projects: `prod`, `stg`, `dev`, and optional `ops`.
-- `20-alphaci-customer-workloads` is only for customer deployments managed by AlphaCI.
+- `20-customer-runtime` is only for customer deployments managed by AlphaCI.
 - `30-shared-infra` is for shared networking, DNS, observability, and build infrastructure used across AlphaExplora products.
 - `90-sandbox` is for experiments and throwaway work.
 
@@ -902,7 +934,7 @@ Naming rule:
 - AlphaCI-managed customer runtime projects use `ac-<customer-slug>-<env>`.
 - Use `ops` only when a product needs product-specific CI, admin jobs, schedulers, or support tooling that should not live in `prod`.
 
-For phase 1, we can defer most of this structure and operate inside `alphaci-20260629`, while recording metadata that supports this future shape.
+Do not defer this structure as a product afterthought. Create the private `alphaexplora-cloud` repo, then create the folder hierarchy, baseline shared-runtime placement, labels, IAM boundaries, and project-factory skeleton in `00-org-foundation-automation` before broad shared-runtime launch. `alphaci-20260629` can remain the current seed/shared project only if it is reconciled into the Terraform-owned foundation or explicitly documented as a temporary bootstrap exception.
 
 ## Naming Policy
 
@@ -1834,6 +1866,7 @@ Production should default to GCP-only for new projects once Cloud Run deploy smo
 23. Billing export must be enabled before customer workloads if we want complete cost history for the GCP rollout.
 24. Artifact Registry cleanup must be reviewed in dry-run mode before enabling active deletion.
 25. Phases are non-blocking work tracks: each phase must become independently runnable, while strict gates block promotion to wider rollout rather than all parallel implementation.
+26. Org/folder/project foundation is automated from the start through Terraform. Dedicated customer project automation may be built early, but customer-dedicated project creation remains product-disabled until routing, billing, cleanup, quota, and admin approval gates pass.
 
 ## Remaining Open Questions
 
@@ -1841,7 +1874,6 @@ No product-direction questions are open for the current planning scope. AlphaExp
 
 Implementation questions that must be closed in child plans:
 
-- Which infrastructure-as-code tool owns stable GCP resources after bootstrap?
 - What exact numeric limits apply to trial, lower/shared paid, and production/business paid tiers?
 - Which dedicated-project routing topology will be approved after the shared launch path works?
 - Which secrets, if any, are allowed in GitHub Actions secrets instead of Secret Manager because they are build-only?
@@ -1857,7 +1889,8 @@ Recommended default decisions unless later changed:
 - Auth from GitHub: Workload Identity Federation.
 - Runtime secrets: GCP Secret Manager.
 - Customer databases: customer-managed; AlphaCI only stores and injects customer-provided env vars.
-- First project model: shared `alphaci-20260629` for the AlphaCI platform and lower-tier/shared hosting.
+- Foundation model: Terraform-owned folder/project foundation starts before shared runtime rollout; `alphaci-20260629` remains the current seed/shared project only until reconciled into the foundation or documented as a temporary bootstrap exception.
+- First runtime model: shared runtime for AlphaCI platform/lower-tier hosting after org foundation bootstrap.
 - Customer isolation model: paid/production customers get dedicated GCP projects.
 - Default region: `asia-southeast1`.
 - Frontend and backend services live in the same GCP project and region by default.
@@ -1870,7 +1903,7 @@ Recommended default decisions unless later changed:
 - Customer lifecycle model: trial and lower/shared paid tiers use shared runtime; production/business paid tiers use dedicated projects; downgrades use grace, entitlement reduction, and explicit migration/archive/delete choices.
 - Preview deployment model: separate Cloud Run services per PR with TTL, limits, preview-scoped secrets, and cleanup; revision tags only for pre-traffic testing and canaries.
 - Database model: schema-per-service/bounded-context, with GCP runtime state split across deployment, domain, secret-reference, lifecycle, and audit schemas; `env_provisioning` stays as the legacy compatibility schema during migration.
-- Control plane model: stable shared infrastructure is owned by infrastructure-as-code; customer/app runtime changes run through idempotent async backend jobs with locks, retries, reconciliation, and admin review.
+- Control plane model: stable foundation and shared infrastructure are owned by Terraform from the start; customer/app runtime changes run through idempotent async backend jobs with locks, retries, reconciliation, and admin review.
 - Launch-readiness model: supply-chain security, domain takeover protection, customer notifications, disaster recovery, quota registry, and admin operations are required before broad production rollout.
 - Routing readiness model: shared runtime can use the shared load balancer first; dedicated customer project routing requires a separate validated topology decision before production rollout.
 - Health readiness model: deploy success requires synthetic/workflow health probes, not load-balancer backend health for serverless NEGs.
@@ -1907,3 +1940,6 @@ Recommended default decisions unless later changed:
 - 2026-06-30: Added split-doc index, pre-implementation hardening checklist, exact GCP services/API matrix, and implementation questions that must close inside child plans.
 - 2026-06-30: Created actual child split plans under docs/plans/gcp/ and updated the split-doc index statuses from planned to created.
 - 2026-06-30: Expanded all child split plans into detailed implementation plans with concrete files, tasks, tests, rollback, and acceptance gates.
+- 2026-07-01: Changed foundation direction so org folders, baseline projects, IAM boundaries, labels, Terraform state, and project-factory skeleton are automated first in `00-org-foundation-automation`; shared runtime still launches before customer-dedicated projects are product-enabled.
+- 2026-07-01: Added `gcp-iam-access-request-matrix.md` so every required GCP group, service account, predefined role, custom-role candidate, API, and refused access pattern is requestable before implementation.
+- 2026-07-01: Decided actual org/foundation Terraform and admin gcloud scripts must live in a separate private `alphaexplora-cloud` repository; AlphaCI repos keep plans, dependency contracts, and runtime consumers only.

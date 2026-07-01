@@ -4,7 +4,7 @@
 
 **Goal:** Provide Vercel-style AlphaCI-managed default domains and paid custom-domain aliases while keeping `itsandbox.site` temporary and preserving a future managed-domain cutover path.
 
-**Architecture:** Deployment identity is separate from domain identity. Every deployment gets a generated AlphaCI-managed domain under the active `managedDomainBase`; during launch that is `itsandbox.site`. Shared runtime routing uses wildcard DNS, a global external Application Load Balancer, Certificate Manager, URL maps, and serverless NEGs. Cloud Run domain mapping is allowed only for dev/manual experiments with owner and cleanup date. Dedicated customer project routing remains blocked until a separate topology proof passes.
+**Architecture:** Deployment identity is separate from domain identity. Every deployment gets a generated AlphaCI-managed domain under the active `managedDomainBase`; during launch that is `itsandbox.site`. Shared runtime routing uses wildcard DNS, a global external Application Load Balancer, Certificate Manager, URL maps, and serverless NEGs owned by `alphaexplora-cloud`. Cloud Run domain mapping is allowed only for dev/manual experiments with owner and cleanup date. Dedicated customer project routing remains blocked until a separate topology proof passes.
 
 **Tech Stack:** Cloud DNS, Certificate Manager, external Application Load Balancer, serverless NEGs, Cloud Run, Postgres domain records, NestJS domain services, frontend domain UI, synthetic probes.
 
@@ -98,7 +98,7 @@ pr-42-credit-flow-rfm.itsandbox.site
 ### Infrastructure Docs
 
 - Create `C:\Codes\cicd-ex\cicd-workflow\docs\gcp\managed-domain-routing.md`
-- Extend bootstrap scripts only after DNS/load-balancer setup is approved by plan 01.
+- Extend foundation-repo bootstrap scripts only after DNS/load-balancer setup is approved by plan 01.
 
 ## Domain States
 
@@ -205,7 +205,7 @@ npm run lint
 
 ### Task 7: Shared Runtime Routing Smoke Test
 
-Requires explicit approval because it touches DNS/load-balancer resources.
+Requires explicit approval because it touches DNS/load-balancer resources owned by `alphaexplora-cloud`.
 
 Smoke path:
 

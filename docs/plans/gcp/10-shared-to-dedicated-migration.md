@@ -4,7 +4,7 @@
 
 **Goal:** Move paid/production customer workloads from the shared runtime project to dedicated customer GCP projects without changing customer/app identity or losing rollback.
 
-**Architecture:** The migration is two-phase. First create and verify the dedicated target while shared continues serving traffic. Then move routing only after health checks and domain checks pass. Shared runtime stays available as rollback until the retention window passes. Dedicated projects remain product-disabled until project factory, billing, IAM, routing topology, cleanup, and admin approvals are proven live.
+**Architecture:** The `alphaexplora-cloud` repo owns the Terraform-created `20-customer-runtime/dedicated` folder and project-factory skeleton early, but product use of dedicated customer projects remains disabled. Runtime migration is two-phase: first create and verify the dedicated target while shared continues serving traffic, then move routing only after health checks and domain checks pass. Shared runtime stays available as rollback until the retention window passes.
 
 **Tech Stack:** GCP Resource Manager, Cloud Billing, Service Usage, IAM, Artifact Registry, Secret Manager, Cloud Run, domain routing plan, backend control-plane jobs, lifecycle entitlements, admin approvals.
 
@@ -12,19 +12,19 @@
 
 ## Hard Block Before Implementation
 
-Do not enable production/business dedicated customer projects until one routing option has a separate approved design and live proof:
+Do not enable production/business dedicated customer projects until `00-org-foundation-automation` has created the private `alphaexplora-cloud` repo, that repo has created the dedicated customer folder/project-factory skeleton, and one routing option has a separate approved design and live proof:
 
 ```text
 Option B: central routing project with validated cross-project backend pattern
 Option C: per-customer routing in dedicated projects
 ```
 
-The live proof must cover managed-domain traffic, custom-domain traffic, rollback, and cleanup.
+The live proof must cover managed-domain traffic, custom-domain traffic, rollback, and cleanup. The existence of `alphaexplora-cloud` and Terraform foundation automation does not by itself allow customer-dedicated project creation in the product.
 
 ## Migration Sequence
 
 ```text
-1. Create dedicated GCP project.
+1. Create dedicated GCP project under `20-customer-runtime/dedicated` using the project factory pattern owned by `alphaexplora-cloud`.
 2. Link billing.
 3. Enable required APIs.
 4. Create Artifact Registry repository.
@@ -62,7 +62,7 @@ appSlug
 dedicatedGcpProjectId
 dedicatedGcpProjectNumber
 billingAccountName
-folderId
+folderId -- must resolve under 20-customer-runtime/dedicated
 region
 artifactRegistryRepo
 runtimeServiceAccount
@@ -129,7 +129,7 @@ Cases:
 
 Rules:
 
-- Create project with approved folder and billing account only.
+- Create project with approved folder under `20-customer-runtime/dedicated` and approved billing account only, using the foundation-repo-owned project factory contract.
 - Link billing before workload resources are created.
 - Enable required APIs idempotently.
 - Create Artifact Registry repo and service accounts.

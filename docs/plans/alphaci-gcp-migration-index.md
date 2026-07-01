@@ -4,6 +4,9 @@ Status: Living index for the AlphaCI migration from Vercel/Render to GCP
 Branch: `feature/migrate-vercel-render-to-gcp`
 Created: 2026-06-30
 Master plan: `docs/plans/alphaci-gcp-provider-migration-plan.md`
+IAM access request matrix: `docs/plans/gcp/gcp-iam-access-request-matrix.md`
+Cloud implementation repo: `alphaexplora-cloud`
+Implementation board: `docs/plans/alphaci-gcp-implementation-board.html`
 
 ## Purpose
 
@@ -11,21 +14,29 @@ Use this file as the entry point once the master brainstorm plan is split into s
 
 Do not start broad implementation from the master plan alone. Pick one indexed area, create or update its focused child plan, then implement that slice behind the gates named here.
 
+Use the implementation board for review meetings and implementation walkthroughs:
+
+```text
+docs/plans/alphaci-gcp-implementation-board.html
+```
+
 ## Plan Map
 
 | Order | Area | Child plan | Status | Blocks |
 | --- | --- | --- | --- | --- |
 | 0 | Master decisions and invariants | `docs/plans/alphaci-gcp-provider-migration-plan.md` | Active | All implementation plans |
-| 1 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Detailed | Live deploys, WIF, Artifact Registry, Secret Manager, Cloud Run |
-| 2 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Detailed | Backend runtime metadata, lifecycle state, BYO removal |
-| 3 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | Detailed | Provisioning jobs, idempotency, reconciliation, admin approvals |
-| 4 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | Detailed | Docker build, Artifact Registry push, Cloud Run deploy, health probes |
-| 5 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Detailed | Managed domains, wildcard DNS, load balancer, custom domains |
-| 6 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Detailed | PR services, TTL, preview secrets, cleanup |
-| 7 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | Detailed | Vercel/Render feature flags, BYO provider removal, credential cleanup |
-| 8 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Detailed | Trials, upgrades, downgrades, failed payments, cancellation |
-| 9 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed | Audit, observability, DR, quotas, admin tooling |
-| 10 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Detailed | Production/business dedicated projects |
+| 0A | Implementation board | `docs/plans/alphaci-gcp-implementation-board.html` | Active | Human review of decisions, tasks, access, and repo boundaries |
+| 1 | Cloud repo and org foundation automation | `docs/plans/gcp/00-org-foundation-automation.md` | Detailed | private cloud repo, folders, baseline projects, IAM boundaries, access matrix, Terraform state |
+| 2 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Detailed | Live deploys, WIF, Artifact Registry, Secret Manager, Cloud Run |
+| 3 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Detailed | Backend runtime metadata, lifecycle state, BYO removal |
+| 4 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | Detailed | Provisioning jobs, idempotency, reconciliation, admin approvals |
+| 5 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | Detailed | Docker build, Artifact Registry push, Cloud Run deploy, health probes |
+| 6 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Detailed | Managed domains, wildcard DNS, load balancer, custom domains |
+| 7 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Detailed | PR services, TTL, preview secrets, cleanup |
+| 8 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | Detailed | Vercel/Render feature flags, BYO provider removal, credential cleanup |
+| 9 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Detailed | Trials, upgrades, downgrades, failed payments, cancellation |
+| 10 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed | Audit, observability, DR, quotas, admin tooling |
+| 11 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Detailed | Production/business dedicated projects |
 
 ## Split Rule
 
@@ -42,32 +53,47 @@ Each child plan must include:
 - Rollback and cleanup behavior.
 - Acceptance criteria.
 
+## IaC Scope Rule
+
+All live cloud IaC belongs in `alphaexplora-cloud`, but it must be split by ownership scope:
+
+- Org/global stacks: organization folders, baseline projects, billing links/export, WIF foundations, DNS/networking/certificates/load balancer foundation.
+- AlphaCI project-specific stacks: shared runtime resources, Artifact Registry, Cloud Run baselines, app service accounts, Secret Manager containers/metadata policy, product outputs.
+- Future dedicated-customer stacks: project factory outputs and dedicated customer project baselines, disabled until dedicated-project gates pass.
+
+Do not mix org/global and AlphaCI project-specific resources in one Terraform root or apply workflow.
+
 ## Dependency Order
 
 The work can overlap, but promotion gates cannot be skipped.
 
 ```text
-01 bootstrap-access
+00 org-foundation-automation
+  -> private alphaexplora-cloud repo
+  -> access request matrix
+  -> 01 bootstrap-access
   -> 04 central-workflow-cloud-run
   -> 05 domains-routing
 
-02 database-expand-contract
+00 org-foundation-automation
+  -> 02 database-expand-contract
   -> 03 backend-control-plane
   -> 06 preview-deployments
   -> 07 legacy-provider-deprecation
   -> 08 billing-limits-lifecycle
 
 09 operations-launch-safety applies to every production rollout.
-10 shared-to-dedicated-migration waits for 01, 03, 04, 05, 08, and 09.
+10 shared-to-dedicated-migration waits for 00, 01, 03, 04, 05, 08, and 09.
 ```
 
 ## First Implementation Slice
 
 Recommended first slice:
 
-1. `01-bootstrap-access`: enable required APIs in `alphaci-20260629`, create WIF, deployer service account, runtime service account, Artifact Registry repo, and Secret Manager baseline.
-2. `04-central-workflow-cloud-run`: deploy one disposable container to Cloud Run through GitHub Actions using WIF, then clean it up.
-3. `02-database-expand-contract`: add isolated runtime schemas and metadata tables without changing existing Vercel/Render behavior.
+1. `00-org-foundation-automation`: create the private `alphaexplora-cloud` repo, then create the Terraform-owned folder hierarchy, baseline projects, labels, IAM boundaries, access request matrix, state model, and project-factory skeleton there.
+2. `01-bootstrap-access`: consume foundation outputs, enable required APIs, create WIF/deployer/runtime service accounts, Artifact Registry, and Secret Manager baseline for the shared runtime.
+3. `04-central-workflow-cloud-run`: deploy one disposable container to Cloud Run through GitHub Actions using WIF, then clean it up.
+4. `02-database-expand-contract`: add isolated runtime schemas and metadata tables without changing existing Vercel/Render behavior.
 
 This proves the GCP path without breaking the current production provider model.
 
@@ -75,6 +101,7 @@ This proves the GCP path without breaking the current production provider model.
 
 Shared-project launch requires:
 
+- Private `alphaexplora-cloud` repo exists with protected writes, then org foundation automation is complete or explicitly bootstrapped with Terraform state, folder IDs, baseline project placement, and verification evidence.
 - Bootstrap/access plan complete for shared runtime.
 - Database expand-contract plan complete enough to store GCP runtime metadata.
 - Backend control plane can create/update deployment targets safely.
@@ -85,6 +112,7 @@ Shared-project launch requires:
 
 Production/business dedicated projects require:
 
+- Dedicated customer folder and project-factory skeleton exist from org foundation automation.
 - Dedicated project factory implemented and smoke-tested.
 - Dedicated project routing topology approved and live-tested.
 - Shared-to-dedicated migration tested with rollback.
@@ -95,3 +123,5 @@ Production/business dedicated projects require:
 - If a child plan introduces a decision that changes the master plan, update the master plan first.
 - If implementation discovers a GCP constraint, update the child plan and the master plan decision log.
 - If a child plan becomes too large, split it again and add the new file here.
+- If a task creates live org/global Terraform, AlphaCI project-specific Terraform, or admin `gcloud` scripts, implement it in `alphaexplora-cloud` and link the resulting commit from this index.
+- If the board no longer matches the source plans, update the source plan first, then update `alphaci-gcp-implementation-board.html`.

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
-**Goal:** Prepare the shared AlphaCI GCP runtime project so GitHub Actions and AlphaCI backend jobs can deploy to Cloud Run without static service account keys.
+**Goal:** Prepare the shared AlphaCI GCP runtime project, using outputs from `00-org-foundation-automation`, so GitHub Actions and AlphaCI backend jobs can deploy to Cloud Run without static service account keys.
 
-**Architecture:** Stable platform resources are bootstrapped first in `alphaci-20260629`. GitHub Actions authenticates through Workload Identity Federation, pushes images to Artifact Registry, and deploys Cloud Run services using a deployer service account. Runtime services run as separate least-privilege service accounts that can read only the Secret Manager values assigned to their service/environment/slot.
+**Architecture:** Org folders, baseline project placement, labels, IAM boundaries, and Terraform state are owned by `alphaexplora-cloud` through `00-org-foundation-automation` first. This plan consumes those foundation outputs to configure shared-runtime WIF, deployer/runtime service accounts, Artifact Registry, Secret Manager, and Cloud Run smoke deploys. Live bootstrap scripts that mutate GCP belong in `alphaexplora-cloud`; `cicd-workflow` only consumes outputs and owns reusable deployment workflows. `alphaci-20260629` may be used as the current seed/shared project only until it is reconciled into the Terraform-owned foundation or documented as a bootstrap exception.
 
 **Tech Stack:** Google Cloud CLI, IAM, Workload Identity Federation, Artifact Registry, Cloud Run, Secret Manager, Cloud Logging, Cloud Monitoring, GitHub Actions OIDC, PowerShell bootstrap scripts.
 
@@ -13,9 +13,21 @@
 ## Source Documents
 
 - Master plan: `C:\Codes\cicd-ex\cicd-workflow\docs\plans\alphaci-gcp-provider-migration-plan.md`
+- IAM access request matrix: `C:\Codes\cicd-ex\cicd-workflow\docs\plans\gcp\gcp-iam-access-request-matrix.md`
+- Foundation plan: `C:\Codes\cicd-ex\cicd-workflow\docs\plans\gcp\00-org-foundation-automation.md`
+- Cloud implementation repo: `C:\Codes\cicd-ex\alphaexplora-cloud`
 - Index: `C:\Codes\cicd-ex\cicd-workflow\docs\plans\alphaci-gcp-migration-index.md`
 - Workflow repo: `C:\Codes\cicd-ex\cicd-workflow`
 - Backend repo: `C:\Codes\cicd-ex\cicd-workflow-be`
+
+## Foundation Dependency
+
+This plan starts after one of these is true:
+
+- Terraform foundation created the target shared runtime project under `20-customer-runtime/shared` and exposed project/folder outputs.
+- An admin bootstrap exception explicitly records why `alphaci-20260629` is temporarily used before Terraform reconciliation.
+
+The backend must not create folders or baseline projects in this phase.
 
 ## Current Known GCP State
 
@@ -44,11 +56,16 @@ Labels: managed_by=alphaci, runtime_scope=shared_project, environment=dev, app=b
 
 ## Files To Create Or Modify
 
-### `cicd-workflow`
+### `alphaexplora-cloud`
 
 - Create `scripts/gcp/bootstrap-shared-runtime.ps1`: idempotent bootstrap script for APIs, service accounts, WIF, Artifact Registry, and smoke-test labels.
 - Create `scripts/gcp/verify-shared-runtime.ps1`: read-only verification script that checks APIs, WIF provider, service accounts, IAM bindings, Artifact Registry repo, and Secret Manager baseline.
-- Create `docs/gcp/bootstrap-shared-runtime.md`: operator runbook with exact commands, expected output shape, rollback notes, and cleanup instructions.
+- Create `docs/gcp/bootstrap-shared-runtime.md`: operator runbook with exact commands, expected output shape, rollback notes, cleanup instructions, and output handoff to AlphaCI.
+
+### `cicd-workflow`
+
+- Do not create live GCP bootstrap scripts here.
+- Consume WIF provider, deployer service account, runtime service account, Artifact Registry repo, and region outputs from `alphaexplora-cloud`.
 - Modify this plan as evidence and decisions change.
 
 ### `cicd-workflow-be`
@@ -76,9 +93,12 @@ logging.googleapis.com
 monitoring.googleapis.com
 ```
 
-Do not enable domain, billing automation, or dedicated-project APIs in this first slice unless the operator runbook explicitly says the shared smoke test requires them.
+Do not enable domain, billing automation, or dedicated-project APIs in this first slice unless the foundation plan and operator runbook explicitly say the shared smoke test requires them.
 
 ## IAM Boundary
+
+Use `C:\Codes\cicd-ex\cicd-workflow\docs\plans\gcp\gcp-iam-access-request-matrix.md` for the complete GCP access request. This section is the runtime subset for the shared smoke test only.
+
 
 ### Deployer Service Account
 
@@ -125,7 +145,7 @@ Fork pull-request previews must remain disabled until the preview deployment pla
 
 **Files:**
 
-- Create `C:\Codes\cicd-ex\cicd-workflow\docs\gcp\bootstrap-shared-runtime.md`
+- Create `C:\Codes\cicd-ex\alphaexplora-cloud\docs\gcp\bootstrap-shared-runtime.md`
 
 Steps:
 
@@ -138,7 +158,7 @@ Steps:
 Verification:
 
 ```powershell
-git -C C:\Codes\cicd-ex\cicd-workflow diff --check -- docs/gcp/bootstrap-shared-runtime.md
+git -C C:\Codes\cicd-ex\alphaexplora-cloud diff --check -- docs/gcp/bootstrap-shared-runtime.md
 ```
 
 Expected: no output and exit code `0`.
@@ -147,8 +167,8 @@ Expected: no output and exit code `0`.
 
 **Files:**
 
-- Create `C:\Codes\cicd-ex\cicd-workflow\scripts\gcp\bootstrap-shared-runtime.ps1`
-- Create `C:\Codes\cicd-ex\cicd-workflow\scripts\gcp\verify-shared-runtime.ps1`
+- Create `C:\Codes\cicd-ex\alphaexplora-cloud\scripts\gcp\bootstrap-shared-runtime.ps1`
+- Create `C:\Codes\cicd-ex\alphaexplora-cloud\scripts\gcp\verify-shared-runtime.ps1`
 
 Script requirements:
 
@@ -162,7 +182,7 @@ Script requirements:
 Verification:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\Codes\cicd-ex\cicd-workflow\scripts\gcp\verify-shared-runtime.ps1 -ProjectId alphaci-20260629 -Region asia-southeast1
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Codes\cicd-ex\alphaexplora-cloud\scripts\gcp\verify-shared-runtime.ps1 -ProjectId alphaci-20260629 -Region asia-southeast1
 ```
 
 Expected before bootstrap: safe failures for missing APIs/resources, no token output.
@@ -240,8 +260,8 @@ Approved operator sequence:
 
 ```powershell
 gcloud config set project alphaci-20260629
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gcp/bootstrap-shared-runtime.ps1 -ProjectId alphaci-20260629 -Region asia-southeast1 -ArtifactRepo alphaci-shared -WifPool alphaci-github-pool -WifProvider alphaci-github-provider -DeployerServiceAccount alphaci-gha-deployer -RuntimeServiceAccount alphaci-shared-runtime
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gcp/verify-shared-runtime.ps1 -ProjectId alphaci-20260629 -Region asia-southeast1
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Codes\cicd-ex\alphaexplora-cloud\scripts\gcp\bootstrap-shared-runtime.ps1 -ProjectId alphaci-20260629 -Region asia-southeast1 -ArtifactRepo alphaci-shared -WifPool alphaci-github-pool -WifProvider alphaci-github-provider -DeployerServiceAccount alphaci-gha-deployer -RuntimeServiceAccount alphaci-shared-runtime
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Codes\cicd-ex\alphaexplora-cloud\scripts\gcp\verify-shared-runtime.ps1 -ProjectId alphaci-20260629 -Region asia-southeast1
 ```
 
 Expected: APIs enabled, service accounts exist, WIF provider exists, Artifact Registry repo exists, smoke secret metadata exists, no token values printed.
@@ -259,4 +279,4 @@ Expected: APIs enabled, service accounts exist, WIF provider exists, Artifact Re
 - GitHub Actions can exchange OIDC for the deployer service account without JSON keys.
 - The deployer service account can push to Artifact Registry and deploy one disposable Cloud Run service.
 - The runtime service account cannot deploy services or mutate IAM.
-- All commands and evidence are recorded in `docs/gcp/bootstrap-shared-runtime.md`.
+- All commands and evidence are recorded in `C:\Codes\cicd-ex\alphaexplora-cloud\docs\gcp\bootstrap-shared-runtime.md`, with safe output values copied into AlphaCI config/docs as needed.

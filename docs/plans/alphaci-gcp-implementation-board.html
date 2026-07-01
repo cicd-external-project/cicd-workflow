@@ -1,0 +1,871 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AlphaCI GCP Implementation Board</title>
+  <style>
+    :root {
+      --bg: #f7f7f4;
+      --surface: #ffffff;
+      --surface-soft: #f0f0ec;
+      --text: #20201d;
+      --muted: #65645d;
+      --line: #d9d8d1;
+      --line-strong: #b8b6aa;
+      --accent: #0f766e;
+      --accent-soft: #d9eeea;
+      --warn: #b45309;
+      --warn-soft: #f4e8d4;
+      --danger: #a93832;
+      --done: #2f7d46;
+      --blocked: #8c3d2e;
+      --shadow: 0 2px 8px rgba(30, 30, 25, 0.08);
+      --radius: 8px;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { overflow-x: hidden; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font-size: 14px;
+      line-height: 1.45;
+      overflow-x: hidden;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    p, a, span, strong, td, th {
+      overflow-wrap: anywhere;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 248px 1fr;
+      min-height: 100vh;
+      max-width: 100vw;
+      overflow-x: hidden;
+    }
+
+    aside {
+      border-right: 1px solid var(--line);
+      background: #ededE8;
+      padding: 18px 14px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+    }
+
+    main {
+      min-width: 0;
+      padding: 22px 24px 44px;
+      overflow-x: hidden;
+    }
+
+    .brand {
+      padding: 4px 6px 18px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 14px;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    .brand span {
+      display: block;
+      color: var(--muted);
+      margin-top: 4px;
+      font-size: 13px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 2px;
+      margin: 0 0 16px;
+    }
+
+    .nav a {
+      color: var(--text);
+      padding: 8px 8px;
+      border-radius: 6px;
+    }
+
+    .nav a:hover {
+      background: rgba(0, 0, 0, 0.05);
+      text-decoration: none;
+    }
+
+    .side-box {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.42);
+      border-radius: var(--radius);
+      padding: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+      min-width: 0;
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      letter-spacing: 0;
+      line-height: 1.2;
+    }
+
+    h1 { font-size: 25px; }
+    h2 { font-size: 18px; margin-bottom: 12px; }
+    h3 { font-size: 15px; margin-bottom: 8px; }
+
+    .subtext {
+      margin: 8px 0 0;
+      color: var(--muted);
+      max-width: 880px;
+      overflow-wrap: anywhere;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    input, select, button {
+      border: 1px solid var(--line-strong);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 7px;
+      padding: 8px 10px;
+      font: inherit;
+      min-height: 36px;
+    }
+
+    input { width: 260px; }
+    button { cursor: pointer; }
+    button:hover { background: var(--surface-soft); }
+
+    section {
+      margin-top: 22px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .grid.cols-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid.cols-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .grid.cols-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 14px;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .metric strong {
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .metric span {
+      color: var(--muted);
+    }
+
+    .phase-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .phase-row {
+      display: grid;
+      grid-template-columns: 34px minmax(210px, 1.1fr) minmax(150px, .7fr) 118px minmax(220px, 1.1fr) auto;
+      gap: 12px;
+      align-items: start;
+      padding: 12px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius);
+      min-width: 0;
+    }
+
+    .phase-row > * { min-width: 0; }
+
+    .order {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .muted { color: var(--muted); }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-size: 12px;
+      color: var(--muted);
+      background: var(--surface-soft);
+      white-space: nowrap;
+    }
+
+    .tag.owner { color: #164e47; background: var(--accent-soft); border-color: #b8d8d2; }
+    .tag.blocked { color: var(--blocked); background: #f3ddd6; border-color: #e3b8aa; }
+    .tag.ready { color: var(--done); background: #dcebdd; border-color: #b9d2ba; }
+    .tag.next { color: var(--warn); background: var(--warn-soft); border-color: #e5cfa6; }
+
+    .stack { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .decision {
+      border-left: 3px solid var(--accent);
+    }
+
+    .decision[data-risk="high"] { border-left-color: var(--danger); }
+    .decision[data-risk="medium"] { border-left-color: var(--warn); }
+
+    .task-group details {
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      margin-top: 10px;
+    }
+
+    .progress-wrap {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress {
+      height: 7px;
+      background: var(--surface-soft);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0;
+      background: var(--accent);
+      transition: width 160ms ease;
+    }
+
+    .task-checklist {
+      list-style: none;
+      padding: 0;
+      margin: 8px 0 0;
+      display: grid;
+      gap: 8px;
+    }
+
+    .task-checklist li {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 8px;
+      align-items: start;
+      color: var(--muted);
+    }
+
+    .task-checklist input {
+      width: 15px;
+      height: 15px;
+      min-height: 0;
+      margin: 2px 0 0;
+      padding: 0;
+      accent-color: var(--accent);
+    }
+
+    .task-checklist input:checked + span {
+      color: var(--text);
+      text-decoration: line-through;
+      text-decoration-color: var(--line-strong);
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 650;
+    }
+
+    ul.clean {
+      list-style: none;
+      padding: 0;
+      margin: 8px 0 0;
+      display: grid;
+      gap: 7px;
+    }
+
+    ul.clean li {
+      padding-left: 18px;
+      position: relative;
+    }
+
+    ul.clean li::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--line-strong);
+      position: absolute;
+      left: 2px;
+      top: .62em;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    th, td {
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      background: var(--surface-soft);
+      font-size: 13px;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .roadmap {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(110px, 1fr));
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .roadmap div {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 10px;
+      min-height: 86px;
+    }
+
+    .roadmap strong { display: block; margin-bottom: 4px; }
+    .roadmap span { color: var(--muted); font-size: 13px; }
+
+    .empty {
+      display: none;
+      border: 1px dashed var(--line-strong);
+      padding: 16px;
+      border-radius: var(--radius);
+      color: var(--muted);
+      background: var(--surface);
+    }
+
+    .footer {
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      margin-top: 28px;
+      padding-top: 16px;
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .shell { grid-template-columns: 1fr; }
+      aside {
+        position: static;
+        height: auto;
+        width: 100vw;
+        max-width: 100vw;
+        overflow-x: hidden;
+      }
+      main {
+        width: 100vw;
+        max-width: 100vw;
+        padding: 22px 14px 44px;
+      }
+      .topbar {
+        flex-direction: column;
+        width: 100%;
+        max-width: 100%;
+      }
+      .toolbar {
+        justify-content: flex-start;
+        width: 100%;
+        max-width: 100%;
+      }
+      input { width: min(100%, 320px); }
+      section, .grid, .panel, .phase-list { max-width: 100%; }
+      .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
+      .metric {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        width: 100%;
+      }
+      .metric strong { margin-left: 10px; }
+      .phase-row { grid-template-columns: 32px 1fr; }
+      .phase-row > :nth-child(n+3) { grid-column: 2; }
+      .tag { white-space: normal; }
+      .roadmap {
+        display: flex;
+        overflow-x: auto;
+      }
+      .roadmap div {
+        flex: 0 0 190px;
+      }
+      table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand">
+        <strong>AlphaCI GCP Board</strong>
+        <span>Decisions and implementation tasks</span>
+      </div>
+      <nav class="nav" aria-label="Page sections">
+        <a href="#overview">Overview</a>
+        <a href="#sequence">Sequence</a>
+        <a href="#decisions">Decisions</a>
+        <a href="#tasks">Task Groups</a>
+        <a href="#access">Access</a>
+        <a href="#questions">Questions</a>
+        <a href="#sources">Source Docs</a>
+      </nav>
+      <div class="side-box">
+        This file is static. Open it directly in a browser from the repo and use it as a planning board during implementation reviews.
+      </div>
+    </aside>
+
+    <main>
+      <div class="topbar">
+        <div>
+          <h1>AlphaCI GCP Migration Implementation Board</h1>
+          <p class="subtext">One place to view the migration order, repo boundaries, accepted decisions, access requests, and implementation task groups.</p>
+        </div>
+        <div class="toolbar" aria-label="Board filters">
+          <input id="search" type="search" placeholder="Search decisions, tasks, owners" />
+          <select id="ownerFilter">
+            <option value="all">All owners</option>
+            <option value="foundation">cloud repo</option>
+            <option value="workflow">Workflow repo</option>
+            <option value="backend">Backend</option>
+            <option value="frontend">Frontend</option>
+            <option value="ops">Ops</option>
+          </select>
+          <button id="reset">Reset</button>
+          <button id="clearProgress">Clear tracking</button>
+        </div>
+      </div>
+
+      <section id="overview">
+        <div class="grid cols-4">
+          <div class="panel metric"><span>Overall progress</span><strong id="overallProgress">0%</strong></div>
+          <div class="panel metric"><span>Completed tasks</span><strong id="completedTasks">0/0</strong></div>
+          <div class="panel metric"><span>Implementation plans</span><strong id="planCount">0</strong></div>
+          <div class="panel metric"><span>Task groups</span><strong id="taskCount">0</strong></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Repo Boundaries</h2>
+        <div class="grid cols-3">
+          <div class="panel">
+            <h3>alphaexplora-cloud</h3>
+            <p class="muted">Owns org/folder/project Terraform, IAM, billing links, Terraform state, DNS, certificates, load balancer foundation, project factory skeleton, and admin verification scripts.</p>
+            <span class="tag owner">company infrastructure</span>
+          </div>
+          <div class="panel">
+            <h3>cicd-workflow</h3>
+            <p class="muted">Owns reusable GitHub Actions workflows, deployment templates, static workflow checks, and GCP Cloud Run workflow contracts.</p>
+            <span class="tag owner">deployment engine</span>
+          </div>
+          <div class="panel">
+            <h3>cicd-workflow-be / fe</h3>
+            <p class="muted">Own backend control plane, database expand-contract migration, product flags, runtime lifecycle, dashboard, domains, previews, billing lifecycle, and admin views.</p>
+            <span class="tag owner">AlphaCI product</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="sequence">
+        <h2>Implementation Sequence</h2>
+        <div id="phaseList" class="phase-list"></div>
+        <div id="phaseEmpty" class="empty">No phases match the current filters.</div>
+      </section>
+
+      <section>
+        <h2>Dependency Roadmap</h2>
+        <div class="roadmap">
+          <div><strong>00</strong><span>Create private cloud repo and Terraform foundation.</span></div>
+          <div><strong>01</strong><span>Bootstrap shared runtime from foundation outputs.</span></div>
+          <div><strong>04</strong><span>Deploy one Cloud Run service through WIF.</span></div>
+          <div><strong>02 + 03</strong><span>Add database/runtime metadata and backend control plane.</span></div>
+          <div><strong>05 + 06</strong><span>Route managed domains and create previews safely.</span></div>
+          <div><strong>07-10</strong><span>Deprecate legacy providers, add billing controls, ops, and dedicated migration.</span></div>
+        </div>
+      </section>
+
+      <section id="decisions">
+        <h2>Decision Register</h2>
+        <div id="decisionList" class="grid cols-2"></div>
+        <div id="decisionEmpty" class="empty">No decisions match the current filters.</div>
+      </section>
+
+      <section id="tasks">
+        <h2>Task Groups</h2>
+        <div id="taskList" class="grid cols-2"></div>
+        <div id="taskEmpty" class="empty">No task groups match the current filters.</div>
+      </section>
+
+      <section id="access">
+        <h2>Access Checklist</h2>
+        <table>
+          <thead>
+            <tr><th>Identity</th><th>Used for</th><th>Access summary</th></tr>
+          </thead>
+          <tbody id="accessRows"></tbody>
+        </table>
+      </section>
+
+      <section id="questions">
+        <h2>Questions To Tune This Viewer</h2>
+        <div class="grid cols-2">
+          <div class="panel">
+            <h3>Fields</h3>
+            <ul class="clean">
+              <li>Do you want task owners and due dates in the board?</li>
+              <li>Do you want status values to be planned, in progress, blocked, done?</li>
+              <li>Do you want cost/risk scores shown per phase?</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>Workflow</h3>
+            <ul class="clean">
+              <li>Should this board stay static HTML, or become generated from Markdown?</li>
+              <li>Should it track commits from `alphaexplora-cloud` once that repo exists?</li>
+              <li>Should each phase link to a checklist issue or GitHub Project item later?</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="sources">
+        <h2>Source Docs</h2>
+        <table>
+          <thead>
+            <tr><th>Document</th><th>Purpose</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><a href="alphaci-gcp-provider-migration-plan.md">Master plan</a></td><td>Decision source and invariants.</td></tr>
+            <tr><td><a href="alphaci-gcp-migration-index.md">Migration index</a></td><td>Implementation order and promotion gates.</td></tr>
+            <tr><td><a href="gcp/00-org-foundation-automation.md">Org foundation automation</a></td><td>private cloud repo and Terraform implementation plan.</td></tr>
+            <tr><td><a href="gcp/gcp-iam-access-request-matrix.md">IAM access matrix</a></td><td>Groups, service accounts, roles, WIF, APIs, and refused access.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <div class="footer">
+        Last updated: 2026-07-01. This board is a viewer for planning; source Markdown remains authoritative.
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const phases = [
+      { order: 0, title: "Master decisions and invariants", file: "alphaci-gcp-provider-migration-plan.md", owner: "ops", status: "active", blocks: "All implementation plans", next: "Keep as source of truth" },
+      { order: 1, title: "Cloud repo and org foundation automation", file: "gcp/00-org-foundation-automation.md", owner: "foundation", status: "next", blocks: "Folders, projects, IAM, access matrix, Terraform state", next: "Create alphaexplora-cloud private repo" },
+      { order: 2, title: "GCP bootstrap and access", file: "gcp/01-bootstrap-access.md", owner: "foundation", status: "planned", blocks: "Live deploys, WIF, Artifact Registry, Secret Manager, Cloud Run", next: "Consume foundation outputs and bootstrap shared runtime" },
+      { order: 3, title: "Database expand-contract migration", file: "gcp/02-database-expand-contract.md", owner: "backend", status: "planned", blocks: "Runtime metadata, lifecycle state, BYO removal", next: "Add schema-per-service runtime tables without breaking old provider data" },
+      { order: 4, title: "Backend control plane", file: "gcp/03-backend-control-plane.md", owner: "backend", status: "planned", blocks: "Provisioning jobs, idempotency, reconciliation, approvals", next: "Add GCP provider capability and job orchestration" },
+      { order: 5, title: "Central workflow replacement", file: "gcp/04-central-workflow-cloud-run.md", owner: "workflow", status: "planned", blocks: "Docker build, Artifact Registry push, Cloud Run deploy, health probes", next: "Build reusable GCP Cloud Run workflow" },
+      { order: 6, title: "Domains and routing", file: "gcp/05-domains-routing.md", owner: "backend", status: "planned", blocks: "Managed domains, wildcard DNS, load balancer, custom domains", next: "Wire domain records and foundation-owned routing" },
+      { order: 7, title: "Preview deployments", file: "gcp/06-preview-deployments.md", owner: "backend", status: "planned", blocks: "PR services, TTL, preview secrets, cleanup", next: "Add preview target lifecycle and cleanup" },
+      { order: 8, title: "Legacy provider deprecation", file: "gcp/07-legacy-provider-deprecation.md", owner: "backend", status: "planned", blocks: "Vercel/Render flags, BYO provider removal, credential cleanup", next: "Block new legacy/BYO provider creation while preserving existing rows" },
+      { order: 9, title: "Billing, limits, and lifecycle", file: "gcp/08-billing-limits-lifecycle.md", owner: "backend", status: "planned", blocks: "Trials, upgrades, downgrades, failed payments, cancellation", next: "Add entitlement and runtime limits" },
+      { order: 10, title: "Operations and launch safety", file: "gcp/09-operations-launch-safety.md", owner: "ops", status: "planned", blocks: "Audit, observability, DR, quotas, admin tooling", next: "Add launch-readiness gates and runbooks" },
+      { order: 11, title: "Shared-to-dedicated migration", file: "gcp/10-shared-to-dedicated-migration.md", owner: "foundation", status: "blocked", blocks: "Dedicated production/business projects", next: "Wait for foundation, routing, billing, cleanup, quota, and admin approval gates" }
+    ];
+
+    const decisions = [
+      { title: "separate cloud repo", owner: "foundation", risk: "high", text: "Actual org/foundation Terraform and admin gcloud scripts live in alphaexplora-cloud, not AlphaCI repos." },
+      { title: "No static GCP keys", owner: "ops", risk: "high", text: "GitHub Actions and Terraform CI use Workload Identity Federation and service account impersonation only." },
+      { title: "Shared first, dedicated later", owner: "ops", risk: "medium", text: "Launch on shared runtime, but design every deployment target so it can move to a dedicated project later." },
+      { title: "No managed customer database", owner: "backend", risk: "medium", text: "AlphaCI stores and injects customer-provided env vars such as DATABASE_URL; it does not host or own customer databases." },
+      { title: "Remove BYO provider hosting", owner: "backend", risk: "medium", text: "Vercel/Render bring-your-own provider hosting is removed from the target product path. Env vars and custom domains remain." },
+      { title: "Wildcard DNS and load balancer", owner: "foundation", risk: "medium", text: "Default domains route through wildcard DNS, global external Application Load Balancer, Certificate Manager, and serverless NEGs." },
+      { title: "Temporary managed domain", owner: "ops", risk: "low", text: "Use itsandbox.site for now, while keeping the domain model ready for a later AlphaExplora-owned domain cutover." },
+      { title: "Region", owner: "foundation", risk: "low", text: "Default runtime region is asia-southeast1." },
+      { title: "Schema-per-service", owner: "backend", risk: "medium", text: "Database changes use schema-per-service or bounded context boundaries, not casual cross-service joins." },
+      { title: "Preview deployments", owner: "workflow", risk: "medium", text: "PR previews are supported with TTL, limits, preview-scoped secrets, cleanup, and fork policy." }
+    ];
+
+    const taskGroups = [
+      { phase: "00", owner: "foundation", title: "Create private cloud repo", tasks: ["Create alphaexplora-cloud", "Restrict writes and admin access", "Add CODEOWNERS and branch protection", "Block committed credentials and Terraform state"] },
+      { phase: "00", owner: "foundation", title: "Add foundation Terraform", tasks: ["Add versions, variables, outputs, backend template", "Create folder hierarchy", "Create baseline projects", "Add IAM and API enablement", "Add verification script and runbook"] },
+      { phase: "01", owner: "foundation", title: "Bootstrap shared runtime", tasks: ["Write bootstrap runbook", "Add idempotent bootstrap script", "Create WIF, service accounts, registry, smoke secret", "Run approved live smoke test"] },
+      { phase: "02", owner: "backend", title: "Database expand-contract", tasks: ["Add runtime schemas", "Create GCP deployment target metadata", "Block new BYO provider rows safely", "Add rollback and validation queries"] },
+      { phase: "03", owner: "backend", title: "Backend control plane", tasks: ["Add provider capability service", "Add strategy resolver", "Add provisioning job repository", "Add orchestrator and reconciler"] },
+      { phase: "04", owner: "workflow", title: "Cloud Run workflow", tasks: ["Add static workflow contract tests", "Implement reusable Docker build/push/deploy workflow", "Update caller templates", "Run disposable live smoke test"] },
+      { phase: "05", owner: "backend", title: "Domains and routing", tasks: ["Add domain reservation", "Add domain records API", "Verify custom domains", "Support managed-domain cutover", "Run shared runtime routing smoke test"] },
+      { phase: "06", owner: "backend", title: "Preview deployments", tasks: ["Add preview limits", "Add preview target service", "Generate preview workflows", "Isolate preview secrets", "Add cleanup job"] },
+      { phase: "07", owner: "frontend", title: "Legacy provider deprecation", tasks: ["Add backend rejection tests", "Add database guard", "Update API contracts", "Remove provider creation from frontend new-project flow"] },
+      { phase: "08", owner: "backend", title: "Billing and lifecycle", tasks: ["Add plan limit tests", "Add lifecycle transition tests", "Implement entitlements", "Wire subscription events", "Add billing export plan"] },
+      { phase: "09", owner: "ops", title: "Operations and launch safety", tasks: ["Add launch readiness tests", "Extend audit events", "Add admin operations surface", "Write runbooks", "Add artifact cleanup safety"] },
+      { phase: "10", owner: "foundation", title: "Shared to dedicated migration", tasks: ["Add project factory guard tests", "Add migration service tests", "Implement dedicated project factory contract", "Deploy and verify dedicated target", "Cut over routing with rollback"] }
+    ];
+
+    const accessRows = [
+      ["ae-tf-foundation", "Foundation Terraform", "Folder Admin, Project Creator, Project IAM Admin, Billing User, Service Usage Admin, Service Account Admin, WIF admin, state bucket access"],
+      ["alphaci-gha-deployer", "GitHub Actions deployer", "WIF impersonation, Cloud Run Developer, Artifact Registry Writer, Service Account User on runtime identity only"],
+      ["alphaci-shared-runtime", "Cloud Run runtime", "Secret Accessor on assigned secrets, log writer, optional metric writer"],
+      ["alphaci-control-plane", "Backend worker", "Cloud Run lifecycle, secret version add/metadata, Artifact Registry read, diagnostics, optional domain manager split"],
+      ["alphaci-preview-cleaner", "Preview cleanup", "Delete preview Cloud Run services, preview images, and preview secret versions"],
+      ["alphaci-billing-reader", "Cost reporting", "BigQuery data viewer/job user for billing export and summary writes"],
+      ["cloud-operators", "Human bootstrap", "Temporary bootstrap roles, then remove or keep emergency-only"],
+      ["gcp-platform-viewers", "Read-only ops", "Browser, Cloud Run Viewer, Logging Viewer, Monitoring Viewer, Secret Manager Viewer"]
+    ];
+
+    const progressKey = "alphaci-gcp-implementation-board-progress-v1";
+    let progressState = loadProgress();
+
+    const q = (selector) => document.querySelector(selector);
+    const searchInput = q("#search");
+    const ownerFilter = q("#ownerFilter");
+
+    function loadProgress() {
+      try {
+        return JSON.parse(localStorage.getItem(progressKey) || "{}");
+      } catch {
+        return {};
+      }
+    }
+
+    function saveProgress() {
+      localStorage.setItem(progressKey, JSON.stringify(progressState));
+    }
+
+    function slug(value) {
+      return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    }
+
+    function taskId(group, taskIndex) {
+      return `${group.phase}:${slug(group.title)}:${taskIndex}`;
+    }
+
+    function isTaskDone(group, taskIndex) {
+      return progressState[taskId(group, taskIndex)] === true;
+    }
+
+    function groupStats(group) {
+      const total = group.tasks.length;
+      const done = group.tasks.filter((_, index) => isTaskDone(group, index)).length;
+      return { done, total, percent: total ? Math.round((done / total) * 100) : 0 };
+    }
+
+    function phaseKeyFromFile(file) {
+      const match = file.match(/gcp\/(\d\d)-/);
+      return match ? match[1] : null;
+    }
+
+    function phaseStats(phase) {
+      const phaseKey = phaseKeyFromFile(phase.file);
+      const groups = phaseKey ? taskGroups.filter((group) => group.phase === phaseKey) : [];
+      const total = groups.reduce((sum, group) => sum + group.tasks.length, 0);
+      const done = groups.reduce((sum, group) => sum + groupStats(group).done, 0);
+      return { done, total, percent: total ? Math.round((done / total) * 100) : null };
+    }
+
+    function overallStats() {
+      const total = taskGroups.reduce((sum, group) => sum + group.tasks.length, 0);
+      const done = taskGroups.reduce((sum, group) => sum + groupStats(group).done, 0);
+      return { done, total, percent: total ? Math.round((done / total) * 100) : 0 };
+    }
+
+    function progressMarkup(stats) {
+      if (stats.percent === null) {
+        return `<div class="muted">No tracked tasks</div>`;
+      }
+      return `
+        <div class="progress-wrap">
+          <div class="progress-label"><span>${stats.percent}%</span><span>${stats.done}/${stats.total}</span></div>
+          <div class="progress" aria-label="Progress ${stats.percent}%"><div class="progress-fill" style="width: ${stats.percent}%"></div></div>
+        </div>
+      `;
+    }
+
+    function matches(item) {
+      const text = JSON.stringify(item).toLowerCase();
+      const search = searchInput.value.trim().toLowerCase();
+      const owner = ownerFilter.value;
+      return (!search || text.includes(search)) && (owner === "all" || item.owner === owner);
+    }
+
+    function statusTag(status) {
+      const cls = status === "blocked" ? "blocked" : status === "next" ? "next" : status === "active" ? "ready" : "";
+      return `<span class="tag ${cls}">${status}</span>`;
+    }
+
+    function renderPhases() {
+      const rows = phases.filter(matches);
+      q("#phaseList").innerHTML = rows.map((phase) => `
+        <article class="phase-row">
+          <div class="order">${phase.order}</div>
+          <div><strong>${phase.title}</strong><br><a href="${phase.file}">${phase.file}</a></div>
+          <div class="stack"><span class="tag owner">${phase.owner}</span>${statusTag(phase.status)}</div>
+          ${progressMarkup(phaseStats(phase))}
+          <div class="muted">${phase.blocks}</div>
+          <div><span class="tag next">${phase.next}</span></div>
+        </article>
+      `).join("");
+      q("#phaseEmpty").style.display = rows.length ? "none" : "block";
+    }
+
+    function renderDecisions() {
+      const rows = decisions.filter(matches);
+      q("#decisionList").innerHTML = rows.map((decision) => `
+        <article class="panel decision" data-risk="${decision.risk}">
+          <h3>${decision.title}</h3>
+          <p class="muted">${decision.text}</p>
+          <div class="stack"><span class="tag owner">${decision.owner}</span><span class="tag">${decision.risk} risk</span></div>
+        </article>
+      `).join("");
+      q("#decisionEmpty").style.display = rows.length ? "none" : "block";
+    }
+
+    function renderTasks() {
+      const rows = taskGroups.filter(matches);
+      q("#taskList").innerHTML = rows.map((group) => {
+        const stats = groupStats(group);
+        return `
+        <article class="panel task-group">
+          <div class="stack"><span class="tag">Phase ${group.phase}</span><span class="tag owner">${group.owner}</span></div>
+          <h3 style="margin-top: 10px">${group.title}</h3>
+          ${progressMarkup(stats)}
+          <details open>
+            <summary>${group.tasks.length} implementation tasks</summary>
+            <ul class="task-checklist">${group.tasks.map((task, index) => `
+              <li>
+                <input class="task-checkbox" type="checkbox" data-task-id="${taskId(group, index)}" ${isTaskDone(group, index) ? "checked" : ""} />
+                <span>${task}</span>
+              </li>
+            `).join("")}</ul>
+          </details>
+        </article>
+      `;
+      }).join("");
+      q("#taskEmpty").style.display = rows.length ? "none" : "block";
+    }
+
+    function renderAccess() {
+      q("#accessRows").innerHTML = accessRows.map((row) => `
+        <tr><td><strong>${row[0]}</strong></td><td>${row[1]}</td><td>${row[2]}</td></tr>
+      `).join("");
+    }
+
+    function renderCounts() {
+      const stats = overallStats();
+      q("#overallProgress").textContent = `${stats.percent}%`;
+      q("#completedTasks").textContent = `${stats.done}/${stats.total}`;
+      q("#planCount").textContent = phases.length;
+      q("#taskCount").textContent = taskGroups.length;
+    }
+
+    function render() {
+      renderCounts();
+      renderPhases();
+      renderDecisions();
+      renderTasks();
+      renderAccess();
+    }
+
+    searchInput.addEventListener("input", render);
+    ownerFilter.addEventListener("change", render);
+    q("#reset").addEventListener("click", () => {
+      searchInput.value = "";
+      ownerFilter.value = "all";
+      render();
+    });
+
+    q("#clearProgress").addEventListener("click", () => {
+      if (confirm("Clear all saved task tracking for this board?")) {
+        progressState = {};
+        saveProgress();
+        render();
+      }
+    });
+
+    document.addEventListener("change", (event) => {
+      if (!event.target.matches(".task-checkbox")) return;
+      progressState[event.target.dataset.taskId] = event.target.checked;
+      saveProgress();
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
