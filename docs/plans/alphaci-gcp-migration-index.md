@@ -33,7 +33,7 @@ docs/plans/alphaci-gcp-implementation-board.html
 | 4 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | In progress | Local capability service, GCP strategy resolver, provisioning-job repository, fake runtime adapter, provisioning orchestrator, and runtime reconciler slices landed; approvals remain |
 | 5 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | In progress | Backend caller generation, reusable GCP Cloud Run workflow contract, and caller-template static integration landed; live smoke test remains |
 | 6 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | In progress | Local domain model/API, fake verifier, and frontend panel landed; DNS, certs, load balancer routing, managed-domain cutover, and live routing smoke remain |
-| 7 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Detailed | PR services, TTL, preview secrets, cleanup |
+| 7 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | In progress | Local preview limits, target planning, fake cleanup intent, workflow preview job generation, and frontend panel landed; live Cloud Run preview smoke and real cleanup mutation remain |
 | 8 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | In progress | Frontend BYO creation controls hidden/removed locally; backend rejection and DB guard landed; credential cleanup remains |
 | 9 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Detailed | Trials, upgrades, downgrades, failed payments, cancellation |
 | 10 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed | Audit, observability, DR, quotas, admin tooling |

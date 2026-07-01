@@ -46,6 +46,7 @@ Authoritative phase map:
 - `cicd-workflow-fe` hides or removes normal BYO/provider-connection creation controls when legacy provider connections are disabled.
 - `alphaexplora-cloud` exists locally with Terraform foundation skeletons, modules, repo checks, and cloud runbooks.
 - `cicd-workflow-be/src/modules/domains` and `cicd-workflow-fe/src/components/product/project-domains-panel.tsx` exist for local domain reservation, custom-domain verification contracts, and dashboard display without DNS access.
+- `cicd-workflow-be/src/modules/gcp-previews` and `cicd-workflow-fe/src/components/product/preview-deployments-panel.tsx` exist for local preview limits, target planning, cleanup intent, and dashboard display without Cloud Run access.
 
 ## Hard Gates
 
@@ -615,21 +616,22 @@ Add local domain management model
 
 **Files:**
 
-- Create: `cicd-workflow-be/src/modules/previews/previews.module.ts`
-- Create: `cicd-workflow-be/src/modules/previews/previews.service.ts`
-- Create: `cicd-workflow-be/src/modules/previews/previews.service.spec.ts`
-- Create: `cicd-workflow-be/src/modules/previews/previews.repository.ts`
-- Create: `cicd-workflow-be/src/modules/previews/previews.repository.spec.ts`
-- Create: `cicd-workflow-be/src/modules/previews/preview-cleanup.service.ts`
-- Create: `cicd-workflow-be/src/modules/previews/preview-cleanup.service.spec.ts`
-- Create: `cicd-workflow-be/supabase/migrations/20260702_preview_deployments.sql`
-- Create: `cicd-workflow-be/supabase/rollbacks/20260702_preview_deployments_down.sql`
+- Create: `cicd-workflow-be/src/modules/gcp-previews/gcp-previews.module.ts`
+- Create: `cicd-workflow-be/src/modules/gcp-previews/preview-targets.service.ts`
+- Create: `cicd-workflow-be/src/modules/gcp-previews/preview-targets.service.spec.ts`
+- Create: `cicd-workflow-be/src/modules/gcp-previews/preview-limits.service.ts`
+- Create: `cicd-workflow-be/src/modules/gcp-previews/preview-limits.service.spec.ts`
+- Create: `cicd-workflow-be/src/modules/gcp-previews/preview-cleanup.service.ts`
+- Create: `cicd-workflow-be/src/modules/gcp-previews/preview-cleanup.service.spec.ts`
+- Reuses: `cicd-workflow-be/supabase/migrations/20260701_gcp_runtime_expand_contract.sql` preview-capable deployment target, domain, secret-reference, and provisioning job tables; no extra migration is needed for this local slice
 - Modify: `cicd-workflow-be/src/modules/workflows/staged-workflow.builder.ts`
 - Modify: `cicd-workflow-be/src/modules/workflows/staged-workflow.builder.spec.ts`
-- Create: `cicd-workflow-fe/src/components/product/project-previews-panel.tsx`
-- Create: `cicd-workflow-fe/tests/unit/project-previews-panel.test.tsx`
+- Create: `cicd-workflow-fe/src/lib/api/previews.ts`
+- Create: `cicd-workflow-fe/src/components/product/preview-deployments-panel.tsx`
+- Create: `cicd-workflow-fe/tests/unit/preview-deployments-api.test.ts`
+- Create: `cicd-workflow-fe/tests/unit/preview-deployments-panel.test.tsx`
 
-- [ ] **Step 1: Add preview deployment schema**
+- [x] **Step 1: Add/reuse preview deployment schema**
 
 Fields:
 
@@ -651,7 +653,7 @@ preview_deployments
 - cleaned_up_at
 ```
 
-- [ ] **Step 2: Write lifecycle tests**
+- [x] **Step 2: Write lifecycle tests**
 
 Cover:
 
@@ -664,7 +666,7 @@ free/trial plan over limit -> preview rejected with clear entitlement error
 fork PR without approval -> preview blocked
 ```
 
-- [ ] **Step 3: Generate preview workflow contract**
+- [x] **Step 3: Generate preview workflow contract**
 
 Preview caller output must use the same reusable Cloud Run workflow but with preview-specific service name and labels:
 
@@ -674,7 +676,7 @@ environment: preview
 labels: tenant_id, project_id, pull_request_number, ttl
 ```
 
-- [ ] **Step 4: Implement fake cleanup**
+- [x] **Step 4: Implement fake cleanup**
 
 Cleanup service marks resources as cleaned locally and records the names it would delete:
 
@@ -687,27 +689,27 @@ domain mapping or route rule
 
 No live delete command is allowed in this task.
 
-- [ ] **Step 5: Run verification**
+- [x] **Step 5: Run verification**
 
 Run:
 
 ```powershell
 cd C:\Codes\cicd-ex\cicd-workflow-be
-npm test -- previews staged-workflow --runInBand
+npm test -- gcp-previews staged-workflow domains gcp-control --runInBand
 npm run typecheck
 
 cd C:\Codes\cicd-ex\cicd-workflow-fe
-npm test -- project-previews-panel --runInBand
+npm test -- preview-deployments --runInBand --coverage=false
 ```
 
 Expected:
 
 ```text
-preview lifecycle is fully testable without Cloud Run access
+preview lifecycle is fully testable without Cloud Run access, including limits, target planning, generated preview deploy jobs, UI/API contracts, and cleanup intent
 cleanup records intended deletions but does not call GCP
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Commit message:
 
