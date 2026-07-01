@@ -331,7 +331,7 @@ Add local GCP provisioning orchestrator
 - Modify: `cicd-workflow-be/src/modules/projects/project-deployments.service.ts`
 - Modify: `cicd-workflow-be/src/modules/projects/project-deployments.service.spec.ts`
 
-- [ ] **Step 1: Write reconciler tests**
+- [x] **Step 1: Write reconciler tests**
 
 Cover:
 
@@ -342,7 +342,7 @@ fake adapter throws permission error -> status becomes blocked_by_access
 job failed previously and retry is allowed -> status becomes retry_pending
 ```
 
-- [ ] **Step 2: Implement status enum mapping**
+- [x] **Step 2: Implement status enum mapping**
 
 Use product states that do not expose provider implementation details:
 
@@ -357,7 +357,7 @@ failed
 archived
 ```
 
-- [ ] **Step 3: Persist reconciliation evidence**
+- [x] **Step 3: Persist reconciliation evidence**
 
 Each reconciliation should store:
 
@@ -372,7 +372,7 @@ correlationId
 
 Do not store GCP access tokens or secret payloads.
 
-- [ ] **Step 4: Run verification**
+- [x] **Step 4: Run verification**
 
 Run:
 
@@ -389,7 +389,7 @@ reconciler tests pass
 runtime status can be rendered by existing project deployment views
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message:
 
