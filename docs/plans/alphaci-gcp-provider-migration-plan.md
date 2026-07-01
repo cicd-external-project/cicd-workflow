@@ -830,6 +830,17 @@ Bootstrap implication:
 - Full folder/project-factory work for dedicated customer projects needs additional organization/folder permissions or a separate admin bootstrap process.
 - Do not assume folder creation, org IAM review, or dedicated customer project placement is currently automated or permission-ready.
 
+## Current External Blockers
+
+These are not code-design disagreements. They are outside-access, account, or platform constraints that should be tracked explicitly while local implementation continues.
+
+| Blocker | Owner | Blocks | Safe work while waiting | Clear condition |
+| --- | --- | --- | --- | --- |
+| GitHub private-repo branch protection unavailable for `alphaexplora-cloud` on the current GitHub plan | GitHub org owner | Enforced required reviews, CODEOWNERS, and required checks on `main` | Keep private repo, squash-only merges, manual cloud-operator review, CODEOWNERS, no direct Terraform apply, and green `Cloud static checks` before merge | Upgrade/change GitHub plan, make the repo public, or enable an equivalent ruleset feature |
+| GCP account reauthentication required for `abtorres.it@alphaexplora.com` | GCP account owner | Live inventory, API enablement, WIF/service-account creation, and Cloud Run smoke deploys from Codex | Continue local IaC, docs, workflow static tests, backend schema/code work, and access request preparation | Run `gcloud auth login abtorres.it@alphaexplora.com` and `gcloud auth application-default login` locally |
+| GCP org/folder permissions not granted yet | GCP organization admin | Folder creation, org IAM, project factory, billing-link automation, and dedicated-customer project placement | Keep Terraform dry-run/static only, maintain IAM matrix, and implement product/runtime code behind feature flags | Required roles in `docs/plans/gcp/gcp-iam-access-request-matrix.md` are granted and verified |
+| Postgres/Supabase migration apply verification missing locally | Backend owner | Promotion of new runtime schemas beyond local code review | Keep migration expand-only and run unit/type/static checks until a database apply check is available | Migration and rollback apply successfully against a Supabase shadow/local database |
+
 ## GCP Services/API Matrix
 
 This matrix is the source of truth for which Google Cloud services AlphaCI needs and why. Implementation work must use the service IDs, not only friendly product names.
@@ -1943,3 +1954,4 @@ Recommended default decisions unless later changed:
 - 2026-07-01: Changed foundation direction so org folders, baseline projects, IAM boundaries, labels, Terraform state, and project-factory skeleton are automated first in `00-org-foundation-automation`; shared runtime still launches before customer-dedicated projects are product-enabled.
 - 2026-07-01: Added `gcp-iam-access-request-matrix.md` so every required GCP group, service account, predefined role, custom-role candidate, API, and refused access pattern is requestable before implementation.
 - 2026-07-01: Decided actual org/foundation Terraform and admin gcloud scripts must live in a separate private `alphaexplora-cloud` repository; AlphaCI repos keep plans, dependency contracts, and runtime consumers only.
+- 2026-07-01: Added an external blocker register for GitHub private-repo branch protection limits, GCP reauthentication, missing org/folder IAM, and local Supabase migration-apply verification.

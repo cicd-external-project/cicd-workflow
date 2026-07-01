@@ -489,6 +489,7 @@
       <nav class="nav" aria-label="Page sections">
         <a href="#overview">Overview</a>
         <a href="#sequence">Sequence</a>
+        <a href="#blockers">Blockers</a>
         <a href="#decisions">Decisions</a>
         <a href="#tasks">Task Groups</a>
         <a href="#access">Access</a>
@@ -567,6 +568,12 @@
           <div><strong>05 + 06</strong><span>Route managed domains and create previews safely.</span></div>
           <div><strong>07-10</strong><span>Deprecate legacy providers, add billing controls, ops, and dedicated migration.</span></div>
         </div>
+      </section>
+
+      <section id="blockers">
+        <h2>Blocker Register</h2>
+        <div id="blockerList" class="grid cols-2"></div>
+        <div id="blockerEmpty" class="empty">No blockers match the current filters.</div>
       </section>
 
       <section id="decisions">
@@ -661,6 +668,41 @@
       { title: "Region", owner: "foundation", risk: "low", text: "Default runtime region is asia-southeast1." },
       { title: "Schema-per-service", owner: "backend", risk: "medium", text: "Database changes use schema-per-service or bounded context boundaries, not casual cross-service joins." },
       { title: "Preview deployments", owner: "workflow", risk: "medium", text: "PR previews are supported with TTL, limits, preview-scoped secrets, cleanup, and fork policy." }
+    ];
+
+    const blockers = [
+      {
+        title: "GitHub private-repo branch protection",
+        owner: "foundation",
+        severity: "medium",
+        blocks: "Required PR reviews, CODEOWNERS review, and required Cloud static checks on main.",
+        workaround: "Keep the repo private, squash-only, manual cloud-operator review, CODEOWNERS, no direct Terraform apply, and green Cloud static checks before merge.",
+        clears: "GitHub plan/ruleset support allows private repo branch protection, or repo visibility/plan changes are approved."
+      },
+      {
+        title: "GCP account reauthentication",
+        owner: "ops",
+        severity: "medium",
+        blocks: "Live inventory, API enablement, WIF/service-account creation, and Cloud Run smoke deploys from Codex.",
+        workaround: "Continue docs, local IaC, workflow static tests, backend schema/code work, and access-request preparation.",
+        clears: "Run gcloud auth login abtorres.it@alphaexplora.com and gcloud auth application-default login locally."
+      },
+      {
+        title: "GCP org/folder IAM",
+        owner: "foundation",
+        severity: "high",
+        blocks: "Folder creation, org IAM, project factory, billing-link automation, and dedicated-customer project placement.",
+        workaround: "Keep Terraform foundation dry-run/static only, maintain the IAM matrix, and build product/runtime code behind feature flags.",
+        clears: "Required roles from gcp-iam-access-request-matrix.md are granted and verified."
+      },
+      {
+        title: "Database migration apply check",
+        owner: "backend",
+        severity: "medium",
+        blocks: "Promoting the new runtime schemas beyond local code review.",
+        workaround: "Keep migration expand-only and run unit, type, lint, and static SQL checks until a database apply check is available.",
+        clears: "Migration and rollback apply successfully against a Supabase shadow/local database."
+      }
     ];
 
     const taskGroups = [
@@ -796,6 +838,20 @@
       q("#decisionEmpty").style.display = rows.length ? "none" : "block";
     }
 
+    function renderBlockers() {
+      const rows = blockers.filter(matches);
+      q("#blockerList").innerHTML = rows.map((blocker) => `
+        <article class="panel decision" data-risk="${blocker.severity}">
+          <h3>${blocker.title}</h3>
+          <p class="muted"><strong>Blocks:</strong> ${blocker.blocks}</p>
+          <p class="muted"><strong>While waiting:</strong> ${blocker.workaround}</p>
+          <p class="muted"><strong>Clears when:</strong> ${blocker.clears}</p>
+          <div class="stack"><span class="tag owner">${blocker.owner}</span><span class="tag">${blocker.severity} blocker</span></div>
+        </article>
+      `).join("");
+      q("#blockerEmpty").style.display = rows.length ? "none" : "block";
+    }
+
     function renderTasks() {
       const rows = taskGroups.filter(matches);
       q("#taskList").innerHTML = rows.map((group) => {
@@ -837,6 +893,7 @@
     function render() {
       renderCounts();
       renderPhases();
+      renderBlockers();
       renderDecisions();
       renderTasks();
       renderAccess();

@@ -38,6 +38,17 @@ docs/plans/alphaci-gcp-implementation-board.html
 | 10 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed | Audit, observability, DR, quotas, admin tooling |
 | 11 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Detailed | Production/business dedicated projects |
 
+## Blocker Register
+
+Track blockers here when they cannot be fixed only by editing the AlphaCI repos. A blocker should not stop unrelated local work; it should define the promotion gate it blocks and the work that can continue safely.
+
+| Blocker | Type | Blocks | Safe work while waiting | Clear condition |
+| --- | --- | --- | --- | --- |
+| GitHub private-repo branch protection unavailable for `alphaexplora-cloud` on the current GitHub plan | External GitHub plan limit | Enforced required reviews, CODEOWNERS, and required `Cloud static checks` on `main` | Keep repo private, squash-only, manual review, CODEOWNERS, no direct Terraform apply, and CI checks before merge | GitHub plan/ruleset support allows private repo branch protection, or repo visibility/plan changes are approved |
+| GCP account reauthentication required for `abtorres.it@alphaexplora.com` | Operator auth | Live GCP inventory, API enablement, WIF creation, service account creation, and smoke deploys | Continue docs, IaC static checks, DB migrations, backend tests, workflow contract tests, and access requests | `gcloud auth login abtorres.it@alphaexplora.com` and `gcloud auth application-default login` complete successfully |
+| GCP organization/folder permissions not granted yet | GCP IAM/access | Folder creation, org IAM review, project factory, billing-link automation, and dedicated-customer project placement | Keep Terraform foundation dry-run/static, maintain IAM matrix, and build app/backend code behind flags | Required roles from `docs/plans/gcp/gcp-iam-access-request-matrix.md` are granted and verified |
+| Postgres/Supabase migration apply verification not available locally | Local tooling/test environment | Promoting DB migration beyond local code review | Keep migration expand-only, run TypeScript/unit/static SQL checks, and defer shared/staging DB promotion | Migration and rollback apply cleanly against a Supabase shadow/local database |
+
 ## Split Rule
 
 Each child plan must include:
