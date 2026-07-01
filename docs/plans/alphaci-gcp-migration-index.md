@@ -36,7 +36,7 @@ docs/plans/alphaci-gcp-implementation-board.html
 | 7 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | In progress | Local preview limits, target planning, fake cleanup intent, workflow preview job generation, and frontend panel landed; live Cloud Run preview smoke and real cleanup mutation remain |
 | 8 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | In progress | Frontend BYO creation controls hidden/removed locally; backend rejection and DB guard landed; credential cleanup remains |
 | 9 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | In progress | Local runtime entitlement transitions and frontend panel landed; subscription event wiring, billing export, budgets, and real enforcement hooks remain |
-| 10 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed | Audit, observability, DR, quotas, admin tooling |
+| 10 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | In progress | Local GCP runtime audit-event catalog, admin readiness endpoint/read model, and frontend operations table landed; observability, DR, quotas, runbooks, and live incident hooks remain |
 | 11 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Detailed | Production/business dedicated projects |
 
 ## Blocker Register

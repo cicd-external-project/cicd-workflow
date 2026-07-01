@@ -829,7 +829,7 @@ Add runtime entitlement transitions
 - Modify: `cicd-workflow/docs/plans/alphaci-gcp-implementation-board.html`
 - Modify: `cicd-workflow/docs/plans/alphaci-gcp-implementation-board.md`
 
-- [ ] **Step 1: Define audit events**
+- [x] **Step 1: Define audit events**
 
 Events:
 
@@ -845,7 +845,7 @@ gcp.preview.cleanup.succeeded
 legacy_provider_connection.create_blocked
 ```
 
-- [ ] **Step 2: Add admin read model**
+- [x] **Step 2: Add admin read model**
 
 Admin view should show:
 
@@ -862,7 +862,7 @@ blocked entitlement reason
 last audit event
 ```
 
-- [ ] **Step 3: Add frontend admin page**
+- [x] **Step 3: Add frontend admin page**
 
 The page should be dense and operational:
 
@@ -873,7 +873,7 @@ drift/blocked badges
 links to project and audit event details
 ```
 
-- [ ] **Step 4: Update board**
+- [x] **Step 4: Update board**
 
 Board should show:
 
@@ -884,7 +884,7 @@ current blockers unchanged
 local prep percentage reflects completed source-tagged tasks
 ```
 
-- [ ] **Step 5: Run verification**
+- [x] **Step 5: Run verification**
 
 Run:
 
@@ -908,7 +908,7 @@ admin can inspect local GCP runtime state without GCP access
 board links the access-independent work queue
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Commit message:
 
