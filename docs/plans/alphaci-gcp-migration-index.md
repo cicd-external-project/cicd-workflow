@@ -26,6 +26,7 @@ docs/plans/alphaci-gcp-implementation-board.html
 | --- | --- | --- | --- | --- |
 | 0 | Master decisions and invariants | `docs/plans/alphaci-gcp-provider-migration-plan.md` | Active | All implementation plans |
 | 0A | Implementation board | `docs/plans/alphaci-gcp-implementation-board.html` | Active | Human review of decisions, tasks, access, and repo boundaries |
+| 0B | Access-independent local implementation queue | `docs/plans/gcp/11-access-independent-local-implementation.md` | Active | Safe backend, workflow, frontend, database, and cloud-repo work while GCP access is blocked |
 | 1 | Cloud repo and org foundation automation | `docs/plans/gcp/00-org-foundation-automation.md` | Detailed | private cloud repo, folders, baseline projects, IAM boundaries, access matrix, Terraform state |
 | 2 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Detailed | Live deploys, WIF, Artifact Registry, Secret Manager, Cloud Run |
 | 3 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Detailed | Backend runtime metadata, lifecycle state, BYO removal |
@@ -96,6 +97,20 @@ The work can overlap, but promotion gates cannot be skipped.
 09 operations-launch-safety applies to every production rollout.
 10 shared-to-dedicated-migration waits for 00, 01, 03, 04, 05, 08, and 09.
 ```
+
+## Access-Independent Work Queue
+
+Use `docs/plans/gcp/11-access-independent-local-implementation.md` while GCP organization, folder, billing, DNS, WIF, and live deployment access are not ready.
+
+That plan is intentionally local-first:
+
+- backend work uses fake GCP adapters, product-level runtime states, and tests
+- database work stays expand-only and does not delete existing Vercel/Render data
+- workflow work uses static validators and caller-template checks
+- frontend work uses backend contracts and local states without claiming live cloud success
+- `alphaexplora-cloud` work stays Terraform/static-check/runbook only
+
+Promotion back to the full phase sequence happens after the access blockers clear and the live-access handoff in the access-independent plan is complete.
 
 ## First Implementation Slice
 

@@ -20,6 +20,8 @@ Use it during planning and implementation reviews to view:
 
 Current implementation note: backend, frontend, and central workflow local prep is in progress. The backend now has GCP provider capability reporting, `/capabilities.deploymentProviders`, GCP runtime config flags, GCP strategy resolution, a completed local provisioning-job repository slice, and staged workflow generation for GCP Cloud Run caller jobs. The central workflow repo now has the reusable GCP Cloud Run deploy workflow, static contract validator, and workflow docs. The frontend hides/removes normal BYO/provider-connection creation controls when legacy provider connections are disabled. Orchestration, reconciliation, backend BYO rejection, database guards, remaining caller-template updates, and live GCP smoke execution remain blocked behind later tasks and access gates.
 
+Access-independent implementation queue: `docs/plans/gcp/11-access-independent-local-implementation.md` is the active companion plan while GCP organization, folder, billing, DNS, WIF, and live deployment access are blocked. It maps the full 00-10 phase index into safe local work: fake-adapter backend implementation, expand-only DB guards, workflow static validation, frontend contract/UI work, and cloud-repo Terraform/runbook static checks.
+
 The source Markdown plans remain authoritative. The HTML board is a viewer and should be updated whenever plan order, decision status, task ownership, or access requirements change.
 
 Task checkbox state is stored in the browser's localStorage for this file. Tasks labeled `(local prep done)` are counted as complete from the source HTML so the board reflects committed local prep even on a fresh browser. Manual checkbox tracking is useful for local planning reviews, but it is not a team source of truth until the board is connected to issues or a project tracker.
@@ -38,6 +40,7 @@ It answers:
 - Which blockers are external or permission-bound?
 - What GCP access is needed?
 - What still needs user/operator input?
+- What can still move while access is blocked?
 
 ## Current Blocker Register
 
