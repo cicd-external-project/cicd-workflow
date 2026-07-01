@@ -113,6 +113,23 @@ Workflow tests must fail if an unmapped branch can deploy to a long-lived enviro
 
 ## Tasks
 
+## Implementation Progress
+
+Local backend generator prep completed on `feature/migrate-vercel-render-to-gcp`:
+
+- `cicd-workflow-be` staged workflow generation accepts `provider=gcp` deployment targets with `deploymentStrategy=gcp_cloud_run`.
+- Generated package workflows add `permissions.id-token: write` only when a GCP Cloud Run target is present.
+- Generated deploy jobs call `cicd-external-project/cicd-workflow/.github/workflows/gcp-cloud-run-deploy.yml@<centralWorkflowRef>`.
+- Generated GCP jobs pass project, region, WIF provider, deployer service account, runtime service account, Artifact Registry repo, image, Cloud Run service, Docker context, Dockerfile path, branch source, environment, and preview allowance.
+- Focused tests prove generated GCP workflows do not reference `VERCEL_TOKEN`, `RENDER_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, or service-account JSON keys.
+
+Remaining workflow work:
+
+- Create the reusable `.github/workflows/gcp-cloud-run-deploy.yml` in `cicd-workflow`.
+- Add static workflow validation script and workflow docs.
+- Update older template files and project scaffold generation where still applicable.
+- Run the disposable live smoke test after WIF and GCP access are available.
+
 ### Task 1: Add Static Workflow Contract Tests
 
 Create `scripts/validate-gcp-cloud-run-workflow.cjs` to check:
@@ -175,6 +192,8 @@ Rules:
 - Direct feature branches do not create long-lived services.
 
 ### Task 5: Update Backend Workflow Generation
+
+Status: Completed for the staged workflow builder local prep slice. Project scaffold/template updates still remain if that path is used for generated GCP deployments.
 
 Tests must prove:
 

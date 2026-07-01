@@ -1956,3 +1956,4 @@ Recommended default decisions unless later changed:
 - 2026-07-01: Decided actual org/foundation Terraform and admin gcloud scripts must live in a separate private `alphaexplora-cloud` repository; AlphaCI repos keep plans, dependency contracts, and runtime consumers only.
 - 2026-07-01: Added an external blocker register for GitHub private-repo branch protection limits, GCP reauthentication, missing org/folder IAM, and local Supabase migration-apply verification.
 - 2026-07-01: Added local prep for the migration blocker: `npm run db:verify:gcp-runtime-migration` applies and rolls back the GCP runtime migration against an explicit local/shadow database URL.
+- 2026-07-01: Added local prep progress for GCP strategy resolution, provisioning-job repository completion, backend GCP Cloud Run caller generation, and frontend removal of normal BYO/provider-connection creation controls.

@@ -29,11 +29,11 @@ docs/plans/alphaci-gcp-implementation-board.html
 | 1 | Cloud repo and org foundation automation | `docs/plans/gcp/00-org-foundation-automation.md` | Detailed | private cloud repo, folders, baseline projects, IAM boundaries, access matrix, Terraform state |
 | 2 | GCP bootstrap and access | `docs/plans/gcp/01-bootstrap-access.md` | Detailed | Live deploys, WIF, Artifact Registry, Secret Manager, Cloud Run |
 | 3 | Database expand-contract migration | `docs/plans/gcp/02-database-expand-contract.md` | Detailed | Backend runtime metadata, lifecycle state, BYO removal |
-| 4 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | In progress | Local capability service and first provisioning-job repository slice landed; orchestration, reconciliation, and approvals remain |
-| 5 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | Detailed | Docker build, Artifact Registry push, Cloud Run deploy, health probes |
+| 4 | Backend control plane | `docs/plans/gcp/03-backend-control-plane.md` | In progress | Local capability service, GCP strategy resolver, and provisioning-job repository slices landed; orchestration, reconciliation, and approvals remain |
+| 5 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | In progress | Backend caller generation for GCP Cloud Run landed; reusable workflow, validator, docs, and smoke test remain |
 | 6 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Detailed | Managed domains, wildcard DNS, load balancer, custom domains |
 | 7 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Detailed | PR services, TTL, preview secrets, cleanup |
-| 8 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | Detailed | Vercel/Render feature flags, BYO provider removal, credential cleanup |
+| 8 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | In progress | Frontend BYO creation controls hidden/removed locally; backend rejection, DB guard, and credential cleanup remain |
 | 9 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Detailed | Trials, upgrades, downgrades, failed payments, cancellation |
 | 10 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed | Audit, observability, DR, quotas, admin tooling |
 | 11 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Detailed | Production/business dedicated projects |

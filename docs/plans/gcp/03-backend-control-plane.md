@@ -66,12 +66,12 @@ Local backend prep completed on `feature/migrate-vercel-render-to-gcp`:
 - Added `src/modules/gcp-control` with provider capability reporting and a provisioning job repository backed by `gcp_operations.provisioning_jobs`.
 - Exposed GCP and legacy provider capability state through `/capabilities` as `deploymentProviders`.
 - Added GCP runtime config fields and disabled-by-default rollout flags for shared project config, dedicated projects, custom domains, and preview deployments.
+- Added GCP strategy-resolver support that maps `provider=gcp` to `gcp_cloud_run` without widening legacy Vercel/Render env-provider types.
+- Completed the local provisioning-job repository method slice: find by ID, find by idempotency key, success, terminal failure, cancel request, and lock release.
 - Verified with focused Jest suites, typecheck, lint, and existing GCP runtime migration/database guard tests.
 
 Remaining backend work:
 
-- Add full strategy resolver support for GCP targets.
-- Complete the provisioning job repository methods beyond the initial create/claim/retryable-failure slice.
 - Add orchestrator, reconciler, audit events, plan gates, and worker execution.
 
 ## Job State Machine
@@ -143,6 +143,8 @@ export interface GcpProviderCapabilities {
 
 ### Task 3: Add Strategy Resolver Support
 
+Status: Completed for the local prep slice.
+
 Expected behavior:
 
 - GCP target resolves to `gcp_cloud_run`.
@@ -154,7 +156,7 @@ Run: `npm test -- src/modules/env-provisioning/deployment-strategy.resolver.spec
 
 ### Task 4: Add Provisioning Job Repository
 
-Status: Partially implemented for the local prep slice. The first pass covers idempotent create, next-job claim with lock/attempt increment, and retryable failure/dead-letter safe error handling. The remaining repository methods still need TDD implementation before orchestrator work.
+Status: Completed for the local prep slice. The repository now covers idempotent create, next-job claim with lock/attempt increment, retryable failure/dead-letter safe error handling, lookup by ID, lookup by idempotency key, success, terminal failure, cancel request, and lock release.
 
 Repository methods:
 

@@ -18,7 +18,7 @@ Use it during planning and implementation reviews to view:
 - questions to tune the board
 - links back to source plans
 
-Current implementation note: backend control-plane local prep is in progress. The backend now has GCP provider capability reporting, `/capabilities.deploymentProviders`, GCP runtime config flags, and the first provisioning-job repository slice. Orchestration, reconciliation, and live GCP execution remain blocked behind later tasks and access gates.
+Current implementation note: backend and frontend local prep is in progress. The backend now has GCP provider capability reporting, `/capabilities.deploymentProviders`, GCP runtime config flags, GCP strategy resolution, a completed local provisioning-job repository slice, and staged workflow generation for GCP Cloud Run caller jobs. The frontend hides/removes normal BYO/provider-connection creation controls when legacy provider connections are disabled. Orchestration, reconciliation, reusable Cloud Run workflow execution, backend BYO rejection, database guards, and live GCP execution remain blocked behind later tasks and access gates.
 
 The source Markdown plans remain authoritative. The HTML board is a viewer and should be updated whenever plan order, decision status, task ownership, or access requirements change.
 

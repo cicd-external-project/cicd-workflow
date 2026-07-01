@@ -67,6 +67,23 @@ Legacy flags may remain enabled in dev/test for migration verification.
 
 ## Tasks
 
+## Implementation Progress
+
+Local frontend prep completed on `feature/migrate-vercel-render-to-gcp`:
+
+- Workspace provider-token settings are hidden when `/capabilities.deploymentProviders.legacyProviders.byoDeploymentProviders.enabledForNewConnections=false`.
+- New-project deployment provisioning no longer renders provider ownership selectors or provider-connection selectors.
+- New-project setup normalizes stale BYO-shaped target values back to `ownershipMode=flowci_managed` and clears `providerConnectionId` before emitting edits.
+- Post-setup project env/deployment target creation no longer renders BYO provider controls and submits `ownershipMode=flowci_managed` without `providerConnectionId`.
+- Focused frontend tests cover hidden provider settings, removed BYO controls, stale BYO normalization, and managed target submission.
+
+Remaining deprecation work:
+
+- Add backend/API rejection for `ownershipMode=byo` and `providerConnectionId` on new managed deployment targets.
+- Add the database guard migration that blocks new BYO provider targets without deleting existing legacy rows.
+- Decide whether legacy provider connection list/revoke should remain behind an admin-only migration surface.
+- Run the cross-repo search verification after backend and database removal slices are complete.
+
 ### Task 1: Add Backend Rejection Tests
 
 Tests:
@@ -104,6 +121,8 @@ API rules:
 - Do not use this error for custom domains or customer-provided env vars.
 
 ### Task 4: Update Frontend New-Project Flow
+
+Status: Completed for the normal frontend setup/env-panel local prep slice. Legacy-admin migration visibility remains undecided.
 
 UI rules:
 
