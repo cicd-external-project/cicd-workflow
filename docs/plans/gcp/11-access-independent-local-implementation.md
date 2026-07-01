@@ -45,6 +45,7 @@ Authoritative phase map:
 - `cicd-workflow-be/scripts/verify-gcp-runtime-migration.cjs` exists but needs a disposable database URL before apply verification can be trusted.
 - `cicd-workflow-fe` hides or removes normal BYO/provider-connection creation controls when legacy provider connections are disabled.
 - `alphaexplora-cloud` exists locally with Terraform foundation skeletons, modules, repo checks, and cloud runbooks.
+- `cicd-workflow-be/src/modules/domains` and `cicd-workflow-fe/src/components/product/project-domains-panel.tsx` exist for local domain reservation, custom-domain verification contracts, and dashboard display without DNS access.
 
 ## Hard Gates
 
@@ -501,17 +502,17 @@ Point workflow templates at GCP Cloud Run
 - Create: `cicd-workflow-be/src/modules/domains/domains.controller.spec.ts`
 - Create: `cicd-workflow-be/src/modules/domains/domains.service.ts`
 - Create: `cicd-workflow-be/src/modules/domains/domains.service.spec.ts`
-- Create: `cicd-workflow-be/src/modules/domains/domain-verifier.ts`
+- Interface: `cicd-workflow-be/src/modules/domains/domains.types.ts` exposes `DomainVerifier`
 - Create: `cicd-workflow-be/src/modules/domains/fake-domain-verifier.ts`
 - Create: `cicd-workflow-be/src/modules/domains/domains.repository.ts`
 - Create: `cicd-workflow-be/src/modules/domains/domains.repository.spec.ts`
-- Create: `cicd-workflow-be/supabase/migrations/20260702_runtime_domains.sql`
-- Create: `cicd-workflow-be/supabase/rollbacks/20260702_runtime_domains_down.sql`
+- Reuses: `cicd-workflow-be/supabase/migrations/20260701_gcp_runtime_expand_contract.sql` for `runtime_domains.domain_records`; no extra migration is needed for the local domain slice
 - Create: `cicd-workflow-fe/src/lib/api/domains.ts`
 - Create: `cicd-workflow-fe/src/components/product/project-domains-panel.tsx`
 - Create: `cicd-workflow-fe/tests/unit/project-domains-panel.test.tsx`
+- Create: `cicd-workflow-fe/tests/unit/domains-api.test.ts`
 
-- [ ] **Step 1: Add domain tables**
+- [x] **Step 1: Add/reuse domain tables**
 
 Schema intent:
 
@@ -538,9 +539,9 @@ The default managed hostname pattern is:
 <project-slug>-<environment>.itsandbox.site
 ```
 
-The schema must also support a later managed domain cutover by storing the managed domain as data, not hardcoding `itsandbox.site` in multiple services.
+The schema must also support a later managed domain cutover by storing the managed domain as data, not hardcoding `itsandbox.site` in multiple services. The local implementation reuses the existing `runtime_domains.domain_records` table from the expand-contract migration rather than adding a second overlapping migration.
 
-- [ ] **Step 2: Write service tests**
+- [x] **Step 2: Write service tests**
 
 Cover:
 
@@ -553,7 +554,7 @@ domain remains pending when fake verifier returns missing CNAME
 domain becomes active when fake verifier returns expected route target
 ```
 
-- [ ] **Step 3: Implement fake verifier**
+- [x] **Step 3: Implement fake verifier**
 
 Fake verifier should accept deterministic inputs:
 
@@ -565,7 +566,7 @@ mode: missing | matched | mismatched
 
 It must not query real DNS.
 
-- [ ] **Step 4: Add frontend panel**
+- [x] **Step 4: Add frontend panel**
 
 The panel should show:
 
@@ -579,7 +580,7 @@ retry verification action
 
 It must not claim SSL is active until backend status is `active`.
 
-- [ ] **Step 5: Run verification**
+- [x] **Step 5: Run verification**
 
 Run:
 
@@ -589,7 +590,7 @@ npm test -- domains --runInBand
 npm run typecheck
 
 cd C:\Codes\cicd-ex\cicd-workflow-fe
-npm test -- project-domains-panel --runInBand
+npm test -- project-domains-panel domains-api --runInBand --coverage=false
 npm run lint
 ```
 
@@ -600,7 +601,7 @@ domain API and UI tests pass without DNS access
 managed hostname remains configurable for later domain cutover
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Commit message:
 
