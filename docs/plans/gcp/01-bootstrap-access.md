@@ -266,6 +266,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\Codes\cicd-ex\alphaexplor
 
 Expected: APIs enabled, service accounts exist, WIF provider exists, Artifact Registry repo exists, smoke secret metadata exists, no token values printed.
 
+
+## Live Access Handoff Checklist
+
+Use this checklist after AlphaExplora GCP access is granted. Do not run these commands from the access-independent local plan.
+
+| Step | Evidence to capture | Unblocks | Verification command |
+| --- | --- | --- | --- |
+| Authenticate AlphaExplora account | Active account email and ADC presence, no tokens printed | Live GCP inventory and bootstrap verification | `gcloud auth list --filter=status:ACTIVE --format=json` and `gcloud auth application-default print-access-token --quiet` only by a human operator if needed, never pasted into docs |
+| Verify org and folder roles | Org ID, folder list, caller roles, timestamp, operator | Foundation Terraform planning | `gcloud organizations list --format=json` and `gcloud resource-manager folders list --organization=<ORG_ID> --format=json` |
+| Verify billing account user rights | Billing account ID and caller billing role, no payment data copied | Project creation and billing links | `gcloud billing accounts get-iam-policy <BILLING_ACCOUNT_ID> --format=json` |
+| Initialize remote Terraform state | State bucket name, versioning enabled, Terraform init output | Foundation plan/apply path in `alphaexplora-cloud` | `terraform -chdir=infra/gcp/foundation init` then `terraform -chdir=infra/gcp/foundation plan` |
+| Create WIF and deployer identity through approved automation | WIF pool/provider resource names, deployer service account email, IAM binding condition | Keyless GitHub Actions deploys | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\gcp\verify-shared-runtime.ps1 -ProjectId <PROJECT_ID> -Region asia-southeast1` |
+| Run disposable Cloud Run smoke deploy | GitHub Actions run URL, image digest, Cloud Run URL, health result | First live Cloud Run deployment proof | `gcloud run services describe <SMOKE_SERVICE> --region asia-southeast1 --project <PROJECT_ID> --format=json` |
+| Destroy disposable smoke resources | Deleted service/image/secret-version names and timestamp | Clean launch-readiness evidence | `gcloud run services list --region asia-southeast1 --project <PROJECT_ID> --filter="metadata.labels.app=bootstrap-smoke" --format=json` |
+| Record evidence in board and index | Links to sanitized outputs and commit hashes | Full phase sequence can resume | Update `alphaci-gcp-implementation-board.md` and `alphaci-gcp-migration-index.md` |
+
 ## Rollback
 
 - Remove smoke Cloud Run services by exact service name and labels.

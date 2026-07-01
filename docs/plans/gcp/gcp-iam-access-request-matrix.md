@@ -1,7 +1,7 @@
 # GCP IAM Access Request Matrix
 
 Status: Draft request checklist for AlphaCI GCP migration
-Updated: 2026-07-01
+Updated: 2026-07-02
 Scope: AlphaExplora organization, AlphaCI product projects, shared customer runtime, future dedicated customer projects, and shared infrastructure projects.
 
 ## Purpose
@@ -20,6 +20,18 @@ finance/ops reads billing and observability without deployment power
 ```
 
 Do not grant broad `roles/owner` or `roles/editor` as the normal operating model. Temporary bootstrap elevation must have an owner, reason, expiry date, and removal checklist.
+
+
+## Access Request Blockers To Clear
+
+| Blocker | Owner | Blocked live command | Safe local workaround | Clears when | Verification command after grant |
+| --- | --- | --- | --- | --- | --- |
+| AlphaExplora GCP account reauthentication | GCP account owner | `gcloud organizations list --format=json` and ADC-backed GCP SDK calls | Continue local backend/frontend/workflow/docs work with fake adapters and static validation | `abtorres.it@alphaexplora.com` is the active gcloud and ADC account | `gcloud auth list --filter=status:ACTIVE --format=json` |
+| Organization and folder IAM grants | GCP organization admin | `terraform -chdir=infra/gcp/foundation plan` and folder/project factory checks | Keep foundation Terraform static-only and do not edit cloud repo until branch alignment is explicit | Required folder/project/billing roles in this matrix are granted | `gcloud resource-manager folders list --organization=<ORG_ID> --format=json` |
+| Billing link permissions | Billing admin or finance owner | Billing-link portions of project factory and billing export setup | Keep billing docs, labels, and entitlement logic local | Billing User/Viewer/Costs Manager paths are granted as listed here | `gcloud billing accounts get-iam-policy <BILLING_ACCOUNT_ID> --format=json` |
+| WIF/deployer bootstrap | Cloud operator | `gcloud iam workload-identity-pools create`, service account creation, and deployer IAM binding | Keep GitHub workflows WIF-only and statically validated | WIF pool/provider and service accounts exist through approved automation | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\gcp\verify-shared-runtime.ps1 -ProjectId <PROJECT_ID> -Region asia-southeast1` |
+| DNS/certificate/load balancer foundation | Domain/network owner | Cloud DNS, Certificate Manager, and external Application Load Balancer mutations | Keep domain API/UI on fake verifier and managed-domain model | Authoritative DNS/project roles and certificate/load balancer roles are granted | `gcloud dns managed-zones list --project=<DNS_PROJECT_ID> --format=json` |
+| Disposable DB migration verification | Backend owner | `npm run db:verify:gcp-runtime-migration` with a disposable DB URL | Keep migration expand-only; run safe no-URL failure locally | Local or shadow Postgres URL is available and confirmed non-production | `npm run db:verify:gcp-runtime-migration` with `GCP_RUNTIME_MIGRATION_VERIFY_DATABASE_URL` |
 
 ## Identity Inventory To Create
 

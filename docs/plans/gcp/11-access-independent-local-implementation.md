@@ -1078,7 +1078,7 @@ Harden GCP runtime migration verifier
 - Modify: `cicd-workflow/docs/plans/gcp/gcp-iam-access-request-matrix.md`
 - Modify: `cicd-workflow/docs/plans/gcp/01-bootstrap-access.md`
 
-- [ ] **Step 1: Confirm every local phase has evidence**
+- [x] **Step 1: Confirm every local phase has evidence**
 
 Evidence checklist:
 
@@ -1095,7 +1095,7 @@ admin GCP runtime page renders local state
 cloud repo static checks pass
 ```
 
-- [ ] **Step 2: Update blockers**
+- [x] **Step 2: Update blockers**
 
 Each remaining blocker must include:
 
@@ -1107,7 +1107,7 @@ clear condition
 verification command after access is granted
 ```
 
-- [ ] **Step 3: Produce live-access handoff**
+- [x] **Step 3: Produce live-access handoff**
 
 Add or update the live-access checklist in `01-bootstrap-access.md`:
 
@@ -1123,7 +1123,7 @@ destroy disposable smoke resources
 record evidence in board/index
 ```
 
-- [ ] **Step 4: Run repository-level verification**
+- [x] **Step 4: Run repository-level verification**
 
 Run:
 
@@ -1148,7 +1148,7 @@ all local gates pass or unrelated pre-existing failures are documented with comm
 no step requires GCP organization access
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message:
 

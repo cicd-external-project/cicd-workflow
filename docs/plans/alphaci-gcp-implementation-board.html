@@ -542,6 +542,7 @@
             <li>Local runtime entitlement decisions and the runtime entitlements panel are prepared without billing export or live GCP access.</li>
             <li>Local GCP runtime audit-event catalog, admin readiness endpoint, and operations table are prepared without GCP access.</li>
             <li>Access-independent local implementation queue is linked for work that can proceed before GCP permissions are granted.</li>
+            <li>Final access-independent verification passed across workflow validator, backend tests/typecheck/lint, frontend tests/lint/build, and safe DB verifier failure.</li>
           </ul>
         </div>
       </section>
@@ -694,7 +695,9 @@
         severity: "medium",
         blocks: "Required PR reviews, CODEOWNERS review, and required Cloud static checks on main.",
         workaround: "Keep the repo private, squash-only, manual cloud-operator review, CODEOWNERS, no direct Terraform apply, and green Cloud static checks before merge.",
-        clears: "GitHub plan/ruleset support allows private repo branch protection, or repo visibility/plan changes are approved."
+        command: "GitHub required-review/ruleset enforcement on private alphaexplora-cloud main.",
+        clears: "GitHub plan/ruleset support allows private repo branch protection, or repo visibility/plan changes are approved.",
+        verify: "Confirm GitHub rulesets or branch protection from repository settings or gh api."
       },
       {
         title: "GCP account reauthentication",
@@ -702,7 +705,9 @@
         severity: "medium",
         blocks: "Live inventory, API enablement, WIF/service-account creation, and Cloud Run smoke deploys from Codex.",
         workaround: "Continue docs, local IaC, workflow static tests, backend schema/code work, and access-request preparation.",
-        clears: "Run gcloud auth login abtorres.it@alphaexplora.com and gcloud auth application-default login locally."
+        command: "gcloud organizations list --format=json and ADC-backed GCP SDK calls.",
+        clears: "Run gcloud auth login abtorres.it@alphaexplora.com and gcloud auth application-default login locally.",
+        verify: "gcloud auth list --filter=status:ACTIVE --format=json"
       },
       {
         title: "GCP org/folder IAM",
@@ -710,7 +715,9 @@
         severity: "high",
         blocks: "Folder creation, org IAM, project factory, billing-link automation, and dedicated-customer project placement.",
         workaround: "Keep Terraform foundation dry-run/static only, maintain the IAM matrix, and build product/runtime code behind feature flags.",
-        clears: "Required roles from gcp-iam-access-request-matrix.md are granted and verified."
+        command: "terraform -chdir=infra/gcp/foundation plan and folder/project factory checks.",
+        clears: "Required roles from gcp-iam-access-request-matrix.md are granted and verified.",
+        verify: "gcloud resource-manager folders list --organization=<ORG_ID> --format=json"
       },
       {
         title: "Database migration apply check",
@@ -718,7 +725,9 @@
         severity: "medium",
         blocks: "Promoting the new runtime schemas beyond local code review.",
         workaround: "Verifier fails safely without a URL and masks DB targets; run npm run db:verify:gcp-runtime-migration with GCP_RUNTIME_MIGRATION_VERIFY_DATABASE_URL when a local or shadow DB is available; keep the migration expand-only until then.",
-        clears: "Migration and rollback apply successfully against a Supabase shadow/local database."
+        command: "npm run db:verify:gcp-runtime-migration with a disposable DB URL.",
+        clears: "Migration and rollback apply successfully against a Supabase shadow/local database.",
+        verify: "npm run db:verify:gcp-runtime-migration with GCP_RUNTIME_MIGRATION_VERIFY_DATABASE_URL"
       },
       {
         title: "alphaexplora-cloud branch alignment",
@@ -726,7 +735,9 @@
         severity: "medium",
         blocks: "Cloud-repo static hardening under the never-leave-feature-branch rule.",
         workaround: "Continue AlphaCI backend, frontend, workflow, database, and board work on feature/migrate-vercel-render-to-gcp; do not edit alphaexplora-cloud until its branch is aligned.",
-        clears: "alphaexplora-cloud is confirmed or created on feature/migrate-vercel-render-to-gcp before any cloud-repo edits."
+        command: "Cloud-repo static hardening commits under the never-leave-feature-branch rule.",
+        clears: "alphaexplora-cloud is confirmed or created on feature/migrate-vercel-render-to-gcp before any cloud-repo edits.",
+        verify: "git -C C:\\Codes\\cicd-ex\\alphaexplora-cloud branch --show-current"
       },
       {
         title: "actionlint unavailable locally",
@@ -734,7 +745,9 @@
         severity: "low",
         blocks: "Actionlint verification of changed workflow templates in this local session.",
         workaround: "Use scripts/validate-gcp-cloud-run-workflow.cjs, JSON parsing checks, forbidden-pattern scans, and git diff --check; do not download and execute actionlint without explicit approval.",
-        clears: "actionlint is installed locally, or the user explicitly approves a temporary actionlint download and execution."
+        command: "actionlint verification of changed workflow templates.",
+        clears: "actionlint is installed locally, or the user explicitly approves a temporary actionlint download and execution.",
+        verify: "actionlint from C:\\Codes\\cicd-ex\\cicd-workflow"
       }
     ];
 
@@ -882,8 +895,10 @@
         <article class="panel decision" data-risk="${blocker.severity}">
           <h3>${blocker.title}</h3>
           <p class="muted"><strong>Blocks:</strong> ${blocker.blocks}</p>
+          <p class="muted"><strong>Blocked command:</strong> ${blocker.command}</p>
           <p class="muted"><strong>While waiting:</strong> ${blocker.workaround}</p>
           <p class="muted"><strong>Clears when:</strong> ${blocker.clears}</p>
+          <p class="muted"><strong>Verify after access:</strong> ${blocker.verify}</p>
           <div class="stack"><span class="tag owner">${blocker.owner}</span><span class="tag">${blocker.severity} blocker</span></div>
         </article>
       `).join("");
