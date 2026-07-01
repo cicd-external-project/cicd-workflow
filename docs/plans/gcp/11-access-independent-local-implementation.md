@@ -113,7 +113,7 @@ This order keeps every step testable without GCP access and reduces the risk tha
 - Create: `cicd-workflow-be/supabase/migrations/20260702_block_new_byo_provider_connections.sql`
 - Create: `cicd-workflow-be/supabase/rollbacks/20260702_block_new_byo_provider_connections_down.sql`
 
-- [ ] **Step 1: Write controller/service tests that reject new provider connections**
+- [x] **Step 1: Write controller/service tests that reject new provider connections**
 
 Add assertions that `POST /provider-connections` returns a 410 or 403-style product error when legacy provider connections are disabled, while read/list endpoints continue to work for existing rows.
 
@@ -127,7 +127,7 @@ delete existing provider connection -> allowed only for cleanup
 env var storage APIs -> unchanged
 ```
 
-- [ ] **Step 2: Add the service-level guard**
+- [x] **Step 2: Add the service-level guard**
 
 Use the existing feature flag/capability pattern rather than removing the module. The service should keep existing provider records readable so current users are not broken during migration.
 
@@ -142,7 +142,7 @@ if (!this.capabilities.legacyProviderConnectionsEnabled) {
 }
 ```
 
-- [ ] **Step 3: Add an expand-safe database guard**
+- [x] **Step 3: Add an expand-safe database guard**
 
 The migration must block new BYO provider connection inserts only when they are created through the legacy connection table. It must not delete existing rows and must not block customer env vars.
 
@@ -169,7 +169,7 @@ execute function env_provisioning.reject_new_legacy_provider_connections();
 
 If the actual table/schema name differs, inspect `20260608_env_provisioning.sql` and use the existing schema and table names exactly.
 
-- [ ] **Step 4: Add rollback**
+- [x] **Step 4: Add rollback**
 
 Rollback shape:
 
@@ -178,7 +178,7 @@ drop trigger if exists reject_new_legacy_provider_connections on env_provisionin
 drop function if exists env_provisioning.reject_new_legacy_provider_connections();
 ```
 
-- [ ] **Step 5: Run local verification**
+- [x] **Step 5: Run local verification**
 
 Run:
 
@@ -196,7 +196,7 @@ existing list/delete behavior tests pass
 TypeScript completes without new errors
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Commit message:
 

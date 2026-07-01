@@ -34,7 +34,7 @@ docs/plans/alphaci-gcp-implementation-board.html
 | 5 | Central workflow replacement | `docs/plans/gcp/04-central-workflow-cloud-run.md` | In progress | Backend caller generation and reusable GCP Cloud Run workflow contract landed; remaining caller-template updates and live smoke test remain |
 | 6 | Domains and routing | `docs/plans/gcp/05-domains-routing.md` | Detailed | Managed domains, wildcard DNS, load balancer, custom domains |
 | 7 | Preview deployments | `docs/plans/gcp/06-preview-deployments.md` | Detailed | PR services, TTL, preview secrets, cleanup |
-| 8 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | In progress | Frontend BYO creation controls hidden/removed locally; backend rejection, DB guard, and credential cleanup remain |
+| 8 | Legacy provider deprecation | `docs/plans/gcp/07-legacy-provider-deprecation.md` | In progress | Frontend BYO creation controls hidden/removed locally; backend rejection and DB guard landed; credential cleanup remains |
 | 9 | Billing, limits, and lifecycle | `docs/plans/gcp/08-billing-limits-lifecycle.md` | Detailed | Trials, upgrades, downgrades, failed payments, cancellation |
 | 10 | Operations and launch safety | `docs/plans/gcp/09-operations-launch-safety.md` | Detailed | Audit, observability, DR, quotas, admin tooling |
 | 11 | Shared-to-dedicated migration | `docs/plans/gcp/10-shared-to-dedicated-migration.md` | Detailed | Production/business dedicated projects |
@@ -49,6 +49,7 @@ Track blockers here when they cannot be fixed only by editing the AlphaCI repos.
 | GCP account reauthentication required for `abtorres.it@alphaexplora.com` | Operator auth | Live GCP inventory, API enablement, WIF creation, service account creation, and smoke deploys | Continue docs, IaC static checks, DB migrations, backend tests, workflow contract tests, and access requests | `gcloud auth login abtorres.it@alphaexplora.com` and `gcloud auth application-default login` complete successfully |
 | GCP organization/folder permissions not granted yet | GCP IAM/access | Folder creation, org IAM review, project factory, billing-link automation, and dedicated-customer project placement | Keep Terraform foundation dry-run/static, maintain IAM matrix, and build app/backend code behind flags | Required roles from `docs/plans/gcp/gcp-iam-access-request-matrix.md` are granted and verified |
 | Postgres/Supabase migration apply verification needs a disposable database URL | Local tooling/test environment | Promoting DB migration beyond local code review | Run `npm run db:verify:gcp-runtime-migration` with `GCP_RUNTIME_MIGRATION_VERIFY_DATABASE_URL` when a local/shadow DB is available; defer shared/staging DB promotion until then | Migration and rollback apply cleanly against a Supabase shadow/local database |
+| lphaexplora-cloud is not currently on eature/migrate-vercel-render-to-gcp | Branch governance | Cloud-repo static hardening under the never-leave-feature-branch rule | Continue AlphaCI backend/frontend/workflow/database work on the feature branch; do not edit lphaexplora-cloud until branch alignment is explicit | lphaexplora-cloud is confirmed or created on eature/migrate-vercel-render-to-gcp before cloud-repo edits |
 
 ## Split Rule
 

@@ -535,6 +535,7 @@
             <li>GCP Cloud Run reusable workflow, static validator, and workflow documentation are locally prepared.</li>
             <li>Backend GCP caller generation, strategy resolution, and provisioning job repository slices are locally prepared.</li>
             <li>Frontend BYO/provider-connection creation controls are removed or hidden for the normal product path.</li>
+            <li>Backend BYO provider connection creation now returns a migration-specific 410 error, with an expand-only DB trigger guard.</li>
             <li>Access-independent local implementation queue is linked for work that can proceed before GCP permissions are granted.</li>
           </ul>
         </div>
@@ -662,7 +663,7 @@
       { order: 5, title: "Central workflow replacement", file: "gcp/04-central-workflow-cloud-run.md", owner: "workflow", status: "active", blocks: "Docker build, Artifact Registry push, Cloud Run deploy, health probes", next: "Update remaining caller templates, then run disposable smoke test after GCP access is ready" },
       { order: 6, title: "Domains and routing", file: "gcp/05-domains-routing.md", owner: "backend", status: "planned", blocks: "Managed domains, wildcard DNS, load balancer, custom domains", next: "Wire domain records and foundation-owned routing" },
       { order: 7, title: "Preview deployments", file: "gcp/06-preview-deployments.md", owner: "backend", status: "planned", blocks: "PR services, TTL, preview secrets, cleanup", next: "Add preview target lifecycle and cleanup" },
-      { order: 8, title: "Legacy provider deprecation", file: "gcp/07-legacy-provider-deprecation.md", owner: "backend", status: "active", blocks: "Vercel/Render flags, BYO provider removal, credential cleanup", next: "Add backend rejection and database guard while preserving existing rows" },
+      { order: 8, title: "Legacy provider deprecation", file: "gcp/07-legacy-provider-deprecation.md", owner: "backend", status: "active", blocks: "Vercel/Render flags, BYO provider removal, credential cleanup", next: "Credential cleanup and final legacy-provider retirement remain after GCP path is stable" },
       { order: 9, title: "Billing, limits, and lifecycle", file: "gcp/08-billing-limits-lifecycle.md", owner: "backend", status: "planned", blocks: "Trials, upgrades, downgrades, failed payments, cancellation", next: "Add entitlement and runtime limits" },
       { order: 10, title: "Operations and launch safety", file: "gcp/09-operations-launch-safety.md", owner: "ops", status: "planned", blocks: "Audit, observability, DR, quotas, admin tooling", next: "Add launch-readiness gates and runbooks" },
       { order: 11, title: "Shared-to-dedicated migration", file: "gcp/10-shared-to-dedicated-migration.md", owner: "foundation", status: "blocked", blocks: "Dedicated production/business projects", next: "Wait for foundation, routing, billing, cleanup, quota, and admin approval gates" }
@@ -713,6 +714,14 @@
         blocks: "Promoting the new runtime schemas beyond local code review.",
         workaround: "Run npm run db:verify:gcp-runtime-migration with GCP_RUNTIME_MIGRATION_VERIFY_DATABASE_URL when a local or shadow DB is available; keep the migration expand-only until then.",
         clears: "Migration and rollback apply successfully against a Supabase shadow/local database."
+      },
+      {
+        title: "alphaexplora-cloud branch alignment",
+        owner: "foundation",
+        severity: "medium",
+        blocks: "Cloud-repo static hardening under the never-leave-feature-branch rule.",
+        workaround: "Continue AlphaCI backend, frontend, workflow, database, and board work on feature/migrate-vercel-render-to-gcp; do not edit alphaexplora-cloud until its branch is aligned.",
+        clears: "alphaexplora-cloud is confirmed or created on feature/migrate-vercel-render-to-gcp before any cloud-repo edits."
       }
     ];
 
@@ -725,11 +734,11 @@
       { phase: "04", owner: "workflow", title: "Cloud Run workflow", tasks: ["Add static workflow contract tests (local prep done)", "Implement reusable Docker build/push/deploy workflow (local prep done)", "Add workflow documentation (local prep done)", "Update backend caller generation (local prep done)", "Update caller templates", "Run disposable live smoke test"] },
       { phase: "05", owner: "backend", title: "Domains and routing", tasks: ["Add domain reservation", "Add domain records API", "Verify custom domains", "Support managed-domain cutover", "Run shared runtime routing smoke test"] },
       { phase: "06", owner: "backend", title: "Preview deployments", tasks: ["Add preview limits", "Add preview target service", "Generate preview workflows", "Isolate preview secrets", "Add cleanup job"] },
-      { phase: "07", owner: "frontend", title: "Legacy provider deprecation", tasks: ["Add backend rejection tests", "Add database guard", "Update API contracts", "Remove provider creation from frontend new-project flow (local prep done)"] },
+      { phase: "07", owner: "frontend", title: "Legacy provider deprecation", tasks: ["Add backend rejection tests (local prep done)", "Add database guard (local prep done)", "Update API contracts", "Remove provider creation from frontend new-project flow (local prep done)"] },
       { phase: "08", owner: "backend", title: "Billing and lifecycle", tasks: ["Add plan limit tests", "Add lifecycle transition tests", "Implement entitlements", "Wire subscription events", "Add billing export plan"] },
       { phase: "09", owner: "ops", title: "Operations and launch safety", tasks: ["Add launch readiness tests", "Extend audit events", "Add admin operations surface", "Write runbooks", "Add artifact cleanup safety"] },
       { phase: "10", owner: "foundation", title: "Shared to dedicated migration", tasks: ["Add project factory guard tests", "Add migration service tests", "Implement dedicated project factory contract", "Deploy and verify dedicated target", "Cut over routing with rollback"] },
-      { phase: "11", owner: "ops", title: "Access-independent local queue", tasks: ["Create access-independent implementation plan (local prep done)", "Execute backend BYO rejection and database guard", "Execute fake GCP orchestrator and reconciler", "Execute workflow caller-template static integration", "Execute local domain, preview, billing, and admin slices", "Keep cloud repo static-only until GCP access clears"] }
+      { phase: "11", owner: "ops", title: "Access-independent local queue", tasks: ["Create access-independent implementation plan (local prep done)", "Execute backend BYO rejection and database guard (local prep done)", "Execute fake GCP orchestrator and reconciler", "Execute workflow caller-template static integration", "Execute local domain, preview, billing, and admin slices", "Keep cloud repo static-only until GCP access clears"] }
     ];
 
     const accessRows = [
