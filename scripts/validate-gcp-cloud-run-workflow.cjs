@@ -55,6 +55,10 @@ function fail(message) {
   process.exitCode = 1;
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 if (!fs.existsSync(workflowPath)) {
   fail(`missing ${path.relative(repoRoot, workflowPath)}`);
   process.exit();
@@ -63,7 +67,7 @@ if (!fs.existsSync(workflowPath)) {
 const workflow = fs.readFileSync(workflowPath, 'utf8');
 
 for (const input of requiredInputs) {
-  const inputPattern = new RegExp(`\\n\\s{6}${input}:\\n`);
+  const inputPattern = new RegExp(`^\\s{6,}${escapeRegExp(input)}:\\s*$`, 'm');
   if (!inputPattern.test(workflow)) {
     fail(`missing workflow_call input ${input}`);
   }
